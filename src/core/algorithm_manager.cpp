@@ -4,6 +4,7 @@
 #include "plugin/data/perception_input.hpp"
 #include "plugin/data/planning_result.hpp"
 #include "plugin/framework/plugin_init.hpp"
+#include "plugin/framework/plugin_loader.hpp"
 #include "plugin/preprocessing/preprocessing.hpp"
 #include <iostream>
 #include <iomanip>
@@ -164,6 +165,11 @@ void AlgorithmManager::updateStatistics(double total_time, double perception_tim
 void AlgorithmManager::setupPluginSystem() {
   // 0. 初始化所有插件
   plugin::initializeAllPlugins();
+
+  // 0.1 加载内置插件
+  #ifdef BUILD_PLUGINS
+  plugins::loadAllBuiltinPlugins();
+  #endif
 
   // 1. 创建感知插件管理器
   perception_plugin_manager_ = std::make_unique<plugin::PerceptionPluginManager>();

@@ -4,7 +4,8 @@
 
 # ========== 插件库 ==========
 add_library(straight_line_planner_plugin STATIC
-    src/straight_line_planner_plugin.cpp)
+    src/straight_line_planner_plugin.cpp
+    src/register.cpp)
 
 # ========== 包含目录 ==========
 target_include_directories(straight_line_planner_plugin
@@ -21,6 +22,9 @@ target_link_libraries(straight_line_planner_plugin
 
 # ========== 编译选项 ==========
 target_compile_features(straight_line_planner_plugin PUBLIC cxx_std_17)
+
+# 定义宏，让 plugin_init.cpp 知道这个插件已启用
+target_compile_definitions(straight_line_planner_plugin PUBLIC BUILD_STRAIGHT_LINE_PLANNER_PLUGIN)
 
 target_compile_definitions(straight_line_planner_plugin
     PRIVATE

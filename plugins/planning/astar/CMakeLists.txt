@@ -4,7 +4,8 @@
 
 # ========== 插件库 ==========
 add_library(astar_planner_plugin STATIC
-    src/astar_planner_plugin.cpp)
+    src/astar_planner_plugin.cpp
+    src/register.cpp)
 
 # ========== 包含目录 ==========
 target_include_directories(astar_planner_plugin
@@ -23,6 +24,9 @@ target_link_libraries(astar_planner_plugin
 
 # ========== 编译选项 ==========
 target_compile_features(astar_planner_plugin PUBLIC cxx_std_17)
+
+# 定义宏，让 plugin_init.cpp 知道这个插件已启用
+target_compile_definitions(astar_planner_plugin PUBLIC BUILD_ASTAR_PLANNER_PLUGIN)
 
 target_compile_definitions(astar_planner_plugin
     PRIVATE

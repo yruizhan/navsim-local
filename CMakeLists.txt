@@ -77,6 +77,8 @@ target_compile_features(navsim_plugin_framework PUBLIC cxx_std_17)
 option(BUILD_PLUGINS "Build built-in plugins" ON)
 if(BUILD_PLUGINS)
     add_subdirectory(plugins)
+    # 定义 C++ 宏，让代码知道插件已启用
+    add_compile_definitions(BUILD_PLUGINS)
 endif()
 
 # ========== Core Library ==========

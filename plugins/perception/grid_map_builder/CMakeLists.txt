@@ -4,7 +4,8 @@
 
 # ========== 插件库 ==========
 add_library(grid_map_builder_plugin STATIC
-    src/grid_map_builder_plugin.cpp)
+    src/grid_map_builder_plugin.cpp
+    src/register.cpp)
 
 # ========== 包含目录 ==========
 target_include_directories(grid_map_builder_plugin
@@ -27,6 +28,9 @@ target_link_libraries(grid_map_builder_plugin
 
 # ========== 编译选项 ==========
 target_compile_features(grid_map_builder_plugin PUBLIC cxx_std_17)
+
+# 定义宏，让 plugin_init.cpp 知道这个插件已启用
+target_compile_definitions(grid_map_builder_plugin PUBLIC BUILD_GRID_MAP_BUILDER_PLUGIN)
 
 # 添加编译定义（可选）
 target_compile_definitions(grid_map_builder_plugin

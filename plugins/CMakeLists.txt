@@ -31,11 +31,19 @@ endif()
 
 # ========== 统一的插件库 ==========
 # 聚合所有插件，供主程序链接
-add_library(navsim_builtin_plugins INTERFACE)
+# 创建一个静态库来强制引用所有插件
+add_library(navsim_builtin_plugins STATIC
+    plugin_loader.cpp)
 
-target_link_libraries(navsim_builtin_plugins INTERFACE
-    navsim_perception_plugins
-    navsim_planning_plugins)
+target_include_directories(navsim_builtin_plugins
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(navsim_builtin_plugins
+    PUBLIC
+        navsim_perception_plugins
+        navsim_planning_plugins)
+
+target_compile_features(navsim_builtin_plugins PUBLIC cxx_std_17)
 
 message(STATUS "=== Built-in Plugins Configuration Complete ===")
 
