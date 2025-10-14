@@ -94,6 +94,18 @@ private:
     bool follow_ego = true; // 是否跟随自车
   } view_state_;
 
+  // 🎨 可视化选项（图例勾选项）
+  struct VisualizationOptions {
+    bool show_ego = true;              // 显示自车
+    bool show_goal = true;             // 显示目标点
+    bool show_trajectory = true;       // 显示规划轨迹
+    bool show_bev_obstacles = true;    // 显示 BEV 静态障碍物
+    bool show_dynamic_obstacles = true;// 显示动态障碍物
+    bool show_occupancy_grid = true;   // 显示栅格地图
+    bool show_coordinate_axes = true;  // 显示坐标轴
+    bool show_grid_lines = true;       // 显示网格线
+  } viz_options_;
+
   // 系统信息
   SystemInfo system_info_;
   ConnectionStatus connection_status_;
@@ -107,6 +119,7 @@ private:
   void handleEvents();
   void renderScene();
   void renderDebugPanel();
+  void renderLegendPanel();  // 🎨 新增：渲染图例面板
   
   // 坐标转换
   struct Point2D { float x, y; };

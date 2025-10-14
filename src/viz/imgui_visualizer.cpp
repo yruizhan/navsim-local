@@ -383,6 +383,9 @@ void ImGuiVisualizer::endFrame() {
   // 渲染调试面板
   renderDebugPanel();
 
+  // 🎨 渲染图例面板
+  renderLegendPanel();
+
   // 渲染 ImGui - SDL_Renderer 流程
   ImGui::Render();
 
@@ -451,38 +454,78 @@ void ImGuiVisualizer::renderScene() {
                        "TEST CIRCLE - If you see this, rendering works!");
   }
 
-  // 绘制网格
-  const float grid_step = config_.pixels_per_meter * view_state_.zoom;
-  if (grid_step > 10.0f) {  // 只在网格足够大时绘制
-    for (float x = fmod(canvas_size.x / 2.0f, grid_step); x < canvas_size.x; x += grid_step) {
-      draw_list->AddLine(
-        ImVec2(canvas_pos.x + x, canvas_pos.y),
-        ImVec2(canvas_pos.x + x, canvas_pos.y + canvas_size.y),
-        IM_COL32(40, 40, 40, 255), 1.0f
-      );
-    }
-    for (float y = fmod(canvas_size.y / 2.0f, grid_step); y < canvas_size.y; y += grid_step) {
-      draw_list->AddLine(
-        ImVec2(canvas_pos.x, canvas_pos.y + y),
-        ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + y),
-        IM_COL32(40, 40, 40, 255), 1.0f
-      );
+  // 🎨 绘制网格（可选）
+  if (viz_options_.show_grid_lines) {
+    const float grid_step = config_.pixels_per_meter * view_state_.zoom;
+    if (grid_step > 10.0f) {  // 只在网格足够大时绘制
+      for (float x = fmod(canvas_size.x / 2.0f, grid_step); x < canvas_size.x; x += grid_step) {
+        draw_list->AddLine(
+          ImVec2(canvas_pos.x + x, canvas_pos.y),
+          ImVec2(canvas_pos.x + x, canvas_pos.y + canvas_size.y),
+          IM_COL32(40, 40, 40, 255), 1.0f
+        );
+      }
+      for (float y = fmod(canvas_size.y / 2.0f, grid_step); y < canvas_size.y; y += grid_step) {
+        draw_list->AddLine(
+          ImVec2(canvas_pos.x, canvas_pos.y + y),
+          ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + y),
+          IM_COL32(40, 40, 40, 255), 1.0f
+        );
+      }
     }
   }
 
-  // 绘制坐标轴
-  auto origin = worldToScreen(0, 0);
-  auto x_axis = worldToScreen(5, 0);
-  auto y_axis = worldToScreen(0, 5);
-  draw_list->AddLine(ImVec2(origin.x, origin.y), ImVec2(x_axis.x, x_axis.y),
-                     IM_COL32(255, 0, 0, 255), 2.0f);  // X 轴红色
-  draw_list->AddLine(ImVec2(origin.x, origin.y), ImVec2(y_axis.x, y_axis.y),
-                     IM_COL32(0, 255, 0, 255), 2.0f);  // Y 轴绿色
+  // 🎨 绘制坐标轴（可选）
+  if (viz_options_.show_coordinate_axes) {
+    auto origin = worldToScreen(0, 0);
+    auto x_axis = worldToScreen(5, 0);
+    auto y_axis = worldToScreen(0, 5);
+    draw_list->AddLine(ImVec2(origin.x, origin.y), ImVec2(x_axis.x, x_axis.y),
+                       IM_COL32(255, 0, 0, 255), 2.0f);  // X 轴红色
+    draw_list->AddLine(ImVec2(origin.x, origin.y), ImVec2(y_axis.x, y_axis.y),
+                       IM_COL32(0, 255, 0, 255), 2.0f);  // Y 轴绿色
+  }
 
-  // 1. 绘制 BEV 障碍物 - 圆形
+  // 🎨 0. 绘制栅格地图（可选，在最底层）
+  if (viz_options_.show_occupancy_grid && occupancy_grid_) {
+    const auto& grid = *occupancy_grid_;
+    const auto& cfg = grid.config;
+
+    // 只绘制占据的格子（优化性能）
+    for (int y = 0; y < cfg.height; ++y) {
+      for (int x = 0; x < cfg.width; ++x) {
+        int idx = y * cfg.width + x;
+        if (idx >= static_cast<int>(grid.data.size())) continue;
+
+        uint8_t value = grid.data[idx];
+        if (value < 50) continue;  // 跳过空闲格子（优化性能）
+
+        // 计算格子的世界坐标
+        double world_x = cfg.origin.x + x * cfg.resolution;
+        double world_y = cfg.origin.y + y * cfg.resolution;
+
+        // 转换到屏幕坐标
+        auto p1 = worldToScreen(world_x, world_y);
+        auto p2 = worldToScreen(world_x + cfg.resolution, world_y + cfg.resolution);
+
+        // 根据占据概率设置颜色（灰度）
+        uint8_t gray = 255 - value;  // 占据越高，颜色越深
+        uint32_t color = IM_COL32(gray, gray, gray, 180);
+
+        draw_list->AddRectFilled(
+          ImVec2(p1.x, p1.y),
+          ImVec2(p2.x, p2.y),
+          color
+        );
+      }
+    }
+  }
+
+  // 🎨 1. 绘制 BEV 障碍物 - 圆形（可选）
   static int obstacle_log_count = 0;
-  if (obstacle_log_count++ % 60 == 0 && !bev_obstacles_.circles.empty()) {
-    std::cout << "[Viz]   Drawing " << bev_obstacles_.circles.size() << " BEV circles" << std::endl;
+  if (viz_options_.show_bev_obstacles) {
+    if (obstacle_log_count++ % 60 == 0 && !bev_obstacles_.circles.empty()) {
+      std::cout << "[Viz]   Drawing " << bev_obstacles_.circles.size() << " BEV circles" << std::endl;
     auto test_center = worldToScreen(bev_obstacles_.circles[0].center);
     std::cout << "[Viz]     First circle: world=(" << bev_obstacles_.circles[0].center.x
               << ", " << bev_obstacles_.circles[0].center.y
@@ -576,11 +619,13 @@ void ImGuiVisualizer::renderScene() {
       }
     }
   }
+  }  // 🎨 结束 BEV 障碍物绘制
 
-  // 4. 绘制动态障碍物
+  // 🎨 4. 绘制动态障碍物（可选）
   static int dyn_obs_log_count = 0;
-  if (dyn_obs_log_count++ % 60 == 0 && !dynamic_obstacles_.empty()) {
-    std::cout << "[Viz]   Drawing " << dynamic_obstacles_.size() << " dynamic obstacles" << std::endl;
+  if (viz_options_.show_dynamic_obstacles) {
+    if (dyn_obs_log_count++ % 60 == 0 && !dynamic_obstacles_.empty()) {
+      std::cout << "[Viz]   Drawing " << dynamic_obstacles_.size() << " dynamic obstacles" << std::endl;
     // 🔧 修复问题1：打印所有障碍物的信息
     for (size_t i = 0; i < dynamic_obstacles_.size(); ++i) {
       const auto& obs = dynamic_obstacles_[i];
@@ -685,68 +730,75 @@ void ImGuiVisualizer::renderScene() {
       );
     }
   }
+  }  // 🎨 结束动态障碍物绘制
 
-  // 5. 绘制规划轨迹
-  static int traj_log_count = 0;
-  if (traj_log_count++ % 60 == 0 && trajectory_.size() > 1) {
-    std::cout << "[Viz]   Drawing trajectory with " << trajectory_.size() << " points" << std::endl;
+  // 🎨 5. 绘制规划轨迹（可选）
+  if (viz_options_.show_trajectory) {
+    static int traj_log_count = 0;
+    if (traj_log_count++ % 60 == 0 && trajectory_.size() > 1) {
+      std::cout << "[Viz]   Drawing trajectory with " << trajectory_.size() << " points" << std::endl;
     auto test_p1 = worldToScreen(trajectory_[0].pose.x, trajectory_[0].pose.y);
     auto test_p2 = worldToScreen(trajectory_[1].pose.x, trajectory_[1].pose.y);
     std::cout << "[Viz]     First segment: (" << test_p1.x << "," << test_p1.y
               << ") -> (" << test_p2.x << "," << test_p2.y << ")" << std::endl;
   }
 
-  if (trajectory_.size() > 1) {
-    for (size_t i = 1; i < trajectory_.size(); ++i) {
-      auto p1 = worldToScreen(trajectory_[i-1].pose.x, trajectory_[i-1].pose.y);
-      auto p2 = worldToScreen(trajectory_[i].pose.x, trajectory_[i].pose.y);
-      draw_list->AddLine(
-        ImVec2(p1.x, p1.y),
-        ImVec2(p2.x, p2.y),
-        IM_COL32(0, 255, 255, 255),  // 青色
-        3.0f
-      );
+    if (trajectory_.size() > 1) {
+      for (size_t i = 1; i < trajectory_.size(); ++i) {
+        auto p1 = worldToScreen(trajectory_[i-1].pose.x, trajectory_[i-1].pose.y);
+        auto p2 = worldToScreen(trajectory_[i].pose.x, trajectory_[i].pose.y);
+        draw_list->AddLine(
+          ImVec2(p1.x, p1.y),
+          ImVec2(p2.x, p2.y),
+          IM_COL32(0, 255, 255, 255),  // 青色
+          3.0f
+        );
+      }
     }
-  }
+  }  // 🎨 结束轨迹绘制
 
-  // 5. 绘制目标点
-  auto goal_pos = worldToScreen(goal_.x, goal_.y);
-  draw_list->AddCircleFilled(
-    ImVec2(goal_pos.x, goal_pos.y),
-    8.0f,
-    IM_COL32(255, 0, 0, 255)  // 红色
-  );
-  draw_list->AddCircle(
-    ImVec2(goal_pos.x, goal_pos.y),
-    12.0f,
-    IM_COL32(255, 0, 0, 255),
-    0, 2.0f
-  );
+  // 🎨 6. 绘制目标点（可选）
+  if (viz_options_.show_goal) {
+    auto goal_pos = worldToScreen(goal_.x, goal_.y);
+    draw_list->AddCircleFilled(
+      ImVec2(goal_pos.x, goal_pos.y),
+      8.0f,
+      IM_COL32(255, 0, 0, 255)  // 红色
+    );
+    draw_list->AddCircle(
+      ImVec2(goal_pos.x, goal_pos.y),
+      12.0f,
+      IM_COL32(255, 0, 0, 255),
+      0, 2.0f
+    );
+  }  // 🎨 结束目标点绘制
 
-  // 6. 绘制自车（最后绘制，确保在最上层）
-  auto ego_pos = worldToScreen(ego_.pose.x, ego_.pose.y);
-  float car_length = ego_.kinematics.wheelbase * config_.pixels_per_meter * view_state_.zoom;
-  float car_width = ego_.kinematics.width * config_.pixels_per_meter * view_state_.zoom;
+  // 🎨 7. 绘制自车（最后绘制，确保在最上层）（可选）
+  if (viz_options_.show_ego) {
+    auto ego_pos = worldToScreen(ego_.pose.x, ego_.pose.y);
+    float car_length = ego_.kinematics.wheelbase * config_.pixels_per_meter * view_state_.zoom;
+    float car_width = ego_.kinematics.width * config_.pixels_per_meter * view_state_.zoom;
 
-  // 简化：绘制为圆形 + 朝向箭头
-  draw_list->AddCircleFilled(
-    ImVec2(ego_pos.x, ego_pos.y),
-    std::max(car_length, car_width) / 2.0f,
-    IM_COL32(0, 255, 0, 200)  // 绿色半透明
-  );
+    // 简化：绘制为圆形 + 朝向箭头
+    draw_list->AddCircleFilled(
+      ImVec2(ego_pos.x, ego_pos.y),
+      std::max(car_length, car_width) / 2.0f,
+      IM_COL32(0, 255, 0, 200)  // 绿色半透明
+    );
 
-  // 绘制朝向箭头
-  float arrow_len = car_length * 0.8f;
-  auto arrow_end = worldToScreen(
-    ego_.pose.x + arrow_len / config_.pixels_per_meter / view_state_.zoom * std::cos(ego_.pose.yaw),
-    ego_.pose.y + arrow_len / config_.pixels_per_meter / view_state_.zoom * std::sin(ego_.pose.yaw)
-  );
-  draw_list->AddLine(
-    ImVec2(ego_pos.x, ego_pos.y),
-    ImVec2(arrow_end.x, arrow_end.y),
-    IM_COL32(0, 255, 0, 255),  // 绿色箭头
-    3.0f
-  );
+    // 绘制朝向箭头
+    float arrow_len = car_length * 0.8f;
+    auto arrow_end = worldToScreen(
+      ego_.pose.x + arrow_len / config_.pixels_per_meter / view_state_.zoom * std::cos(ego_.pose.yaw),
+      ego_.pose.y + arrow_len / config_.pixels_per_meter / view_state_.zoom * std::sin(ego_.pose.yaw)
+    );
+    draw_list->AddLine(
+      ImVec2(ego_pos.x, ego_pos.y),
+      ImVec2(arrow_end.x, arrow_end.y),
+      IM_COL32(0, 255, 0, 255),  // 绿色箭头
+      3.0f
+    );
+  }  // 🎨 结束自车绘制
 
   ImGui::End();
 }
@@ -912,6 +964,101 @@ std::string ImGuiVisualizer::formatDouble(double value, int precision) {
   std::ostringstream oss;
   oss << std::fixed << std::setprecision(precision) << value;
   return oss.str();
+}
+
+void ImGuiVisualizer::renderLegendPanel() {
+  // 创建图例面板（Legend Panel）
+  ImGui::SetNextWindowPos(ImVec2(1010, 450), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(390, 450), ImGuiCond_FirstUseEver);
+
+  ImGui::Begin("Legend & Visualization Options", nullptr, ImGuiWindowFlags_NoCollapse);
+
+  ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Visualization Options");
+  ImGui::Separator();
+  ImGui::Spacing();
+
+  // 🎨 可视化选项勾选框
+  ImGui::Text("Elements:");
+  ImGui::Checkbox("Show Ego Vehicle", &viz_options_.show_ego);
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "[Green]");
+
+  ImGui::Checkbox("Show Goal Point", &viz_options_.show_goal);
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "[Red]");
+
+  ImGui::Checkbox("Show Trajectory", &viz_options_.show_trajectory);
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Cyan]");
+
+  ImGui::Checkbox("Show BEV Obstacles", &viz_options_.show_bev_obstacles);
+  ImGui::Indent();
+  if (viz_options_.show_bev_obstacles) {
+    ImGui::BulletText("Circles:");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "[Red]");
+
+    ImGui::BulletText("Rectangles:");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "[Green]");
+
+    ImGui::BulletText("Polygons:");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "[Yellow]");
+  }
+  ImGui::Unindent();
+
+  ImGui::Checkbox("Show Dynamic Obstacles", &viz_options_.show_dynamic_obstacles);
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "[Purple]");
+
+  ImGui::Checkbox("Show Occupancy Grid", &viz_options_.show_occupancy_grid);
+
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::Text("Display Options:");
+  ImGui::Checkbox("Show Coordinate Axes", &viz_options_.show_coordinate_axes);
+  ImGui::Checkbox("Show Grid Lines", &viz_options_.show_grid_lines);
+
+  ImGui::Spacing();
+  ImGui::Separator();
+
+  // 快捷按钮
+  ImGui::Text("Quick Actions:");
+  if (ImGui::Button("Show All")) {
+    viz_options_.show_ego = true;
+    viz_options_.show_goal = true;
+    viz_options_.show_trajectory = true;
+    viz_options_.show_bev_obstacles = true;
+    viz_options_.show_dynamic_obstacles = true;
+    viz_options_.show_occupancy_grid = true;
+    viz_options_.show_coordinate_axes = true;
+    viz_options_.show_grid_lines = true;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Hide All")) {
+    viz_options_.show_ego = false;
+    viz_options_.show_goal = false;
+    viz_options_.show_trajectory = false;
+    viz_options_.show_bev_obstacles = false;
+    viz_options_.show_dynamic_obstacles = false;
+    viz_options_.show_occupancy_grid = false;
+    viz_options_.show_coordinate_axes = false;
+    viz_options_.show_grid_lines = false;
+  }
+
+  ImGui::Spacing();
+  ImGui::Separator();
+
+  // 统计信息
+  ImGui::Text("Statistics:");
+  ImGui::BulletText("BEV Circles: %zu", bev_obstacles_.circles.size());
+  ImGui::BulletText("BEV Rectangles: %zu", bev_obstacles_.rectangles.size());
+  ImGui::BulletText("BEV Polygons: %zu", bev_obstacles_.polygons.size());
+  ImGui::BulletText("Dynamic Obstacles: %zu", dynamic_obstacles_.size());
+  ImGui::BulletText("Trajectory Points: %zu", trajectory_.size());
+
+  ImGui::End();
 }
 
 } // namespace viz
