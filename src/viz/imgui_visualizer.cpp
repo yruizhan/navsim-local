@@ -270,6 +270,13 @@ void ImGuiVisualizer::drawOccupancyGrid(const planning::OccupancyGrid& grid) {
   debug_info_["Grid Resolution"] = std::to_string(grid.config.resolution) + "m";
 }
 
+void ImGuiVisualizer::drawESDFMap(const planning::ESDFMap& esdf_map) {
+  esdf_map_ = std::make_unique<planning::ESDFMap>(esdf_map);
+  debug_info_["ESDF Size"] = std::to_string(esdf_map.config.width) + "x" + std::to_string(esdf_map.config.height);
+  debug_info_["ESDF Resolution"] = std::to_string(esdf_map.config.resolution) + "m";
+  debug_info_["ESDF Max Distance"] = std::to_string(esdf_map.config.max_distance) + "m";
+}
+
 void ImGuiVisualizer::drawTrajectory(const std::vector<plugin::TrajectoryPoint>& trajectory,
                                       const std::string& planner_name) {
   static int call_count = 0;
@@ -314,6 +321,17 @@ void ImGuiVisualizer::updatePlanningContext(const planning::PlanningContext& con
                                       " @" + formatDouble(grid.config.resolution, 2) + "m";
   } else {
     context_info_["Occupancy Grid"] = "None";
+  }
+
+  if (context.esdf_map) {
+    const auto& esdf = *context.esdf_map;
+    context_info_["ESDF Map"] = std::to_string(esdf.config.width) + "x" +
+                                std::to_string(esdf.config.height) +
+                                " @" + formatDouble(esdf.config.resolution, 2) + "m" +
+                                " (max=" + formatDouble(esdf.config.max_distance, 1) + "m)";
+    drawESDFMap(esdf);
+  } else {
+    context_info_["ESDF Map"] = "None";
   }
 
   if (context.bev_obstacles) {
@@ -491,6 +509,73 @@ void ImGuiVisualizer::renderScene() {
     const auto& grid = *occupancy_grid_;
     const auto& cfg = grid.config;
 
+    // 🔧 绘制栅格地图边界框
+    double grid_min_x = cfg.origin.x;
+    double grid_min_y = cfg.origin.y;
+    double grid_max_x = cfg.origin.x + cfg.width * cfg.resolution;
+    double grid_max_y = cfg.origin.y + cfg.height * cfg.resolution;
+
+    // 🔍 调试信息：每 60 帧打印一次栅格地图边界信息
+    static int grid_log_count = 0;
+    if (grid_log_count++ % 60 == 0) {
+      std::cout << "[Viz] Occupancy Grid Boundary:" << std::endl;
+      std::cout << "  - Grid size: " << cfg.width << "x" << cfg.height << std::endl;
+      std::cout << "  - Resolution: " << cfg.resolution << " m" << std::endl;
+      std::cout << "  - Origin: (" << cfg.origin.x << ", " << cfg.origin.y << ")" << std::endl;
+      std::cout << "  - World bounds: X=[" << grid_min_x << ", " << grid_max_x << "], Y=[" << grid_min_y << ", " << grid_max_y << "]" << std::endl;
+      std::cout << "  - World size: " << (grid_max_x - grid_min_x) << " x " << (grid_max_y - grid_min_y) << " m" << std::endl;
+      std::cout << "  - View center: (" << view_state_.center_x << ", " << view_state_.center_y << ")" << std::endl;
+      std::cout << "  - View zoom: " << view_state_.zoom << std::endl;
+    }
+
+    auto boundary_p1_temp = worldToScreen(grid_min_x, grid_min_y);
+    auto boundary_p2_temp = worldToScreen(grid_max_x, grid_min_y);
+    auto boundary_p3_temp = worldToScreen(grid_max_x, grid_max_y);
+    auto boundary_p4_temp = worldToScreen(grid_min_x, grid_max_y);
+
+    ImVec2 boundary_p1(boundary_p1_temp.x, boundary_p1_temp.y);
+    ImVec2 boundary_p2(boundary_p2_temp.x, boundary_p2_temp.y);
+    ImVec2 boundary_p3(boundary_p3_temp.x, boundary_p3_temp.y);
+    ImVec2 boundary_p4(boundary_p4_temp.x, boundary_p4_temp.y);
+
+    // 🔍 调试信息：打印屏幕坐标
+    if (grid_log_count % 60 == 1) {
+      std::cout << "  - Screen coords: P1=(" << boundary_p1.x << ", " << boundary_p1.y << "), "
+                << "P2=(" << boundary_p2.x << ", " << boundary_p2.y << "), "
+                << "P3=(" << boundary_p3.x << ", " << boundary_p3.y << "), "
+                << "P4=(" << boundary_p4.x << ", " << boundary_p4.y << ")" << std::endl;
+    }
+
+    // 绘制边界框（亮黄色实线，更粗更明显）
+    const float dash_length = 15.0f;  // 🔧 增加虚线长度
+    const float gap_length = 8.0f;    // 🔧 增加间隙长度
+
+    // 绘制四条边（使用虚线效果）
+    auto drawDashedLine = [&](ImVec2 p1, ImVec2 p2, uint32_t color, float thickness) {
+      float dx = p2.x - p1.x;
+      float dy = p2.y - p1.y;
+      float length = std::sqrt(dx * dx + dy * dy);
+      if (length < 0.1f) return;
+
+      float ux = dx / length;
+      float uy = dy / length;
+
+      float current = 0.0f;
+      while (current < length) {
+        float dash_end = std::min(current + dash_length, length);
+        ImVec2 start(p1.x + ux * current, p1.y + uy * current);
+        ImVec2 end(p1.x + ux * dash_end, p1.y + uy * dash_end);
+        draw_list->AddLine(start, end, color, thickness);
+        current += dash_length + gap_length;
+      }
+    };
+
+    // 🔧 使用亮黄色实线，更粗更明显（方便调试）
+    drawDashedLine(boundary_p1, boundary_p2, IM_COL32(255, 255, 0, 255), 4.0f);  // 底边（亮黄色）
+    drawDashedLine(boundary_p2, boundary_p3, IM_COL32(255, 255, 0, 255), 4.0f);  // 右边（亮黄色）
+    drawDashedLine(boundary_p3, boundary_p4, IM_COL32(255, 255, 0, 255), 4.0f);  // 顶边（亮黄色）
+    drawDashedLine(boundary_p4, boundary_p1, IM_COL32(255, 255, 0, 255), 4.0f);  // 左边（亮黄色）
+
     // 只绘制占据的格子（优化性能）
     for (int y = 0; y < cfg.height; ++y) {
       for (int x = 0; x < cfg.width; ++x) {
@@ -515,6 +600,100 @@ void ImGuiVisualizer::renderScene() {
         draw_list->AddRectFilled(
           ImVec2(p1.x, p1.y),
           ImVec2(p2.x, p2.y),
+          color
+        );
+      }
+    }
+  }
+
+  // 🎨 0.5. 绘制 ESDF 地图（可选，在占据栅格之后）
+  if (viz_options_.show_esdf_map && esdf_map_) {
+    const auto& esdf = *esdf_map_;
+    const auto& cfg = esdf.config;
+
+    // 绘制 ESDF 边界框（青色虚线）
+    double esdf_min_x = cfg.origin.x;
+    double esdf_min_y = cfg.origin.y;
+    double esdf_max_x = cfg.origin.x + cfg.width * cfg.resolution;
+    double esdf_max_y = cfg.origin.y + cfg.height * cfg.resolution;
+
+    auto boundary_p1 = worldToScreen(esdf_min_x, esdf_min_y);
+    auto boundary_p2 = worldToScreen(esdf_max_x, esdf_min_y);
+    auto boundary_p3 = worldToScreen(esdf_max_x, esdf_max_y);
+    auto boundary_p4 = worldToScreen(esdf_min_x, esdf_max_y);
+
+    // 绘制边界框（青色虚线）
+    auto drawDashedLine = [&](ImVec2 p1, ImVec2 p2, uint32_t color, float thickness) {
+      float dx = p2.x - p1.x;
+      float dy = p2.y - p1.y;
+      float length = std::sqrt(dx * dx + dy * dy);
+      if (length < 0.1f) return;
+
+      float ux = dx / length;
+      float uy = dy / length;
+
+      float current = 0.0f;
+      const float dash_length = 10.0f;
+      const float gap_length = 5.0f;
+      while (current < length) {
+        float dash_end = std::min(current + dash_length, length);
+        ImVec2 start(p1.x + ux * current, p1.y + uy * current);
+        ImVec2 end(p1.x + ux * dash_end, p1.y + uy * dash_end);
+        draw_list->AddLine(start, end, color, thickness);
+        current += dash_length + gap_length;
+      }
+    };
+
+    drawDashedLine(ImVec2(boundary_p1.x, boundary_p1.y), ImVec2(boundary_p2.x, boundary_p2.y), IM_COL32(0, 255, 255, 255), 3.0f);
+    drawDashedLine(ImVec2(boundary_p2.x, boundary_p2.y), ImVec2(boundary_p3.x, boundary_p3.y), IM_COL32(0, 255, 255, 255), 3.0f);
+    drawDashedLine(ImVec2(boundary_p3.x, boundary_p3.y), ImVec2(boundary_p4.x, boundary_p4.y), IM_COL32(0, 255, 255, 255), 3.0f);
+    drawDashedLine(ImVec2(boundary_p4.x, boundary_p4.y), ImVec2(boundary_p1.x, boundary_p1.y), IM_COL32(0, 255, 255, 255), 3.0f);
+
+    // 绘制 ESDF 距离场（使用颜色编码）
+    // 采样绘制（每隔几个格子绘制一次，优化性能）
+    int sample_step = std::max(1, static_cast<int>(2.0 / view_state_.zoom));  // 根据缩放调整采样率
+
+    for (int y = 0; y < cfg.height; y += sample_step) {
+      for (int x = 0; x < cfg.width; x += sample_step) {
+        int idx = y * cfg.width + x;
+        if (idx >= static_cast<int>(esdf.data.size())) continue;
+
+        double distance = esdf.data[idx];
+
+        // 跳过距离太大的格子（优化性能）
+        if (distance >= cfg.max_distance * 0.9) continue;
+
+        // 计算格子的世界坐标
+        double world_x = cfg.origin.x + (x + 0.5) * cfg.resolution;
+        double world_y = cfg.origin.y + (y + 0.5) * cfg.resolution;
+
+        // 转换到屏幕坐标
+        auto center = worldToScreen(world_x, world_y);
+        float cell_size = cfg.resolution * config_.pixels_per_meter * view_state_.zoom * sample_step;
+
+        // 颜色编码：蓝色（远离障碍物）-> 绿色 -> 黄色 -> 红色（接近障碍物）
+        uint8_t r, g, b;
+        double normalized_dist = std::clamp(distance / cfg.max_distance, 0.0, 1.0);
+
+        if (normalized_dist > 0.5) {
+          // 蓝色 -> 绿色
+          double t = (normalized_dist - 0.5) * 2.0;
+          r = 0;
+          g = static_cast<uint8_t>(255 * (1.0 - t));
+          b = static_cast<uint8_t>(255 * t);
+        } else {
+          // 红色 -> 黄色 -> 绿色
+          double t = normalized_dist * 2.0;
+          r = static_cast<uint8_t>(255 * (1.0 - t));
+          g = static_cast<uint8_t>(255 * t);
+          b = 0;
+        }
+
+        uint32_t color = IM_COL32(r, g, b, 120);  // 半透明
+
+        draw_list->AddRectFilled(
+          ImVec2(center.x - cell_size/2, center.y - cell_size/2),
+          ImVec2(center.x + cell_size/2, center.y + cell_size/2),
           color
         );
       }
@@ -1220,12 +1399,68 @@ void ImGuiVisualizer::renderLegendPanel() {
   ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "[Purple]");
 
   ImGui::Checkbox("Show Occupancy Grid", &viz_options_.show_occupancy_grid);
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Gray]");
+
+  ImGui::Checkbox("Show ESDF Map", &viz_options_.show_esdf_map);
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Cyan Border]");
+  ImGui::Indent();
+  if (viz_options_.show_esdf_map) {
+    ImGui::BulletText("Color: Blue (far) -> Green -> Yellow -> Red (near)");
+  }
+  ImGui::Unindent();
 
   ImGui::Spacing();
   ImGui::Separator();
   ImGui::Text("Display Options:");
   ImGui::Checkbox("Show Coordinate Axes", &viz_options_.show_coordinate_axes);
   ImGui::Checkbox("Show Grid Lines", &viz_options_.show_grid_lines);
+
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::Text("View Options:");
+  if (ImGui::Checkbox("Follow Ego Vehicle", &view_state_.follow_ego)) {
+    std::cout << "[ImGuiVisualizer] Follow ego: "
+              << (view_state_.follow_ego ? "ON" : "OFF") << " (toggled from Legend panel)" << std::endl;
+  }
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "(F key)");
+
+  // 🔧 添加"适应栅格地图"按钮
+  if (occupancy_grid_ && ImGui::Button("Fit Occupancy Grid")) {
+    const auto& cfg = occupancy_grid_->config;
+
+    // 计算栅格地图的中心和尺寸
+    double grid_center_x = cfg.origin.x + (cfg.width * cfg.resolution) / 2.0;
+    double grid_center_y = cfg.origin.y + (cfg.height * cfg.resolution) / 2.0;
+    double grid_width = cfg.width * cfg.resolution;
+    double grid_height = cfg.height * cfg.resolution;
+
+    // 设置视图中心为栅格地图中心
+    view_state_.center_x = grid_center_x;
+    view_state_.center_y = grid_center_y;
+
+    // 关闭跟随模式
+    view_state_.follow_ego = false;
+
+    // 计算合适的缩放倍数（留 10% 边距）
+    ImVec2 canvas_size = ImGui::GetContentRegionAvail();
+    double zoom_x = (canvas_size.x * 0.9) / (grid_width * config_.pixels_per_meter);
+    double zoom_y = (canvas_size.y * 0.9) / (grid_height * config_.pixels_per_meter);
+    view_state_.zoom = std::min(zoom_x, zoom_y);
+
+    std::cout << "[ImGuiVisualizer] Fit occupancy grid:" << std::endl;
+    std::cout << "  - Grid center: (" << grid_center_x << ", " << grid_center_y << ")" << std::endl;
+    std::cout << "  - Grid size: " << grid_width << " x " << grid_height << " m" << std::endl;
+    std::cout << "  - Canvas size: " << canvas_size.x << " x " << canvas_size.y << " px" << std::endl;
+    std::cout << "  - New zoom: " << view_state_.zoom << std::endl;
+  }
+  if (!occupancy_grid_) {
+    ImGui::BeginDisabled();
+    ImGui::Button("Fit Occupancy Grid");
+    ImGui::EndDisabled();
+  }
 
   ImGui::Spacing();
   ImGui::Separator();

@@ -213,18 +213,19 @@ bool DynamicPluginLoader::isPluginLoaded(const std::string& plugin_name) const {
 
 int DynamicPluginLoader::loadPluginsFromConfig(const std::string& config_path) {
   std::cout << "[DynamicPluginLoader] Loading plugins from config: " << config_path << std::endl;
-  
+
   // 加载配置文件
-  ConfigLoader config_loader;
-  if (!config_loader.loadFromFile(config_path)) {
+  config_loader_ = std::make_unique<ConfigLoader>();
+  if (!config_loader_->loadFromFile(config_path)) {
     std::cerr << "[DynamicPluginLoader] Failed to load config file: " << config_path << std::endl;
+    config_loader_.reset();
     return 0;
   }
-  
+
   int loaded_count = 0;
-  
+
   // 加载感知插件
-  auto perception_configs = config_loader.getPerceptionPluginConfigs();
+  auto perception_configs = config_loader_->getPerceptionPluginConfigs();
   std::cout << "[DynamicPluginLoader] Found " << perception_configs.size() << " perception plugins in config" << std::endl;
   for (const auto& config : perception_configs) {
     std::cout << "[DynamicPluginLoader] Perception plugin: " << config.name
@@ -237,10 +238,10 @@ int DynamicPluginLoader::loadPluginsFromConfig(const std::string& config_path) {
       std::cout << "[DynamicPluginLoader] Skipping disabled plugin: " << config.name << std::endl;
     }
   }
-  
+
   // 加载规划器插件
-  std::string primary_planner = config_loader.getPrimaryPlannerName();
-  std::string fallback_planner = config_loader.getFallbackPlannerName();
+  std::string primary_planner = config_loader_->getPrimaryPlannerName();
+  std::string fallback_planner = config_loader_->getFallbackPlannerName();
 
   // 加载主规划器
   if (!primary_planner.empty()) {

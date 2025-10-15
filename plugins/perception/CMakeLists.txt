@@ -7,7 +7,7 @@ message(STATUS "--- Configuring Perception Plugins ---")
 
 # ========== 插件选项 ==========
 option(BUILD_GRID_MAP_BUILDER_PLUGIN "Build GridMapBuilder plugin" ON)
-option(BUILD_ESDF_BUILDER_PLUGIN "Build ESDF Builder plugin" OFF)
+option(BUILD_ESDF_BUILDER_PLUGIN "Build ESDF Builder plugin" ON)
 
 # ========== 插件列表 ==========
 set(PERCEPTION_PLUGIN_LIBS "")
@@ -21,12 +21,11 @@ else()
     message(STATUS "  [-] GridMapBuilder plugin (disabled)")
 endif()
 
-# ESDF Builder 插件（示例 - 未实现）
+# ESDF Builder 插件
 if(BUILD_ESDF_BUILDER_PLUGIN)
     message(STATUS "  [+] ESDF Builder plugin")
-    # add_subdirectory(esdf_builder)
-    # list(APPEND PERCEPTION_PLUGIN_LIBS esdf_builder_plugin)
-    message(WARNING "ESDF Builder plugin not implemented yet")
+    add_subdirectory(esdf_builder)
+    list(APPEND PERCEPTION_PLUGIN_LIBS esdf_builder_plugin)
 else()
     message(STATUS "  [-] ESDF Builder plugin (disabled)")
 endif()

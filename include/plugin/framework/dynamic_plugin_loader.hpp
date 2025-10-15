@@ -8,6 +8,9 @@
 namespace navsim {
 namespace plugin {
 
+// 前向声明
+class ConfigLoader;
+
 /**
  * @brief 动态插件加载器
  * 
@@ -88,11 +91,18 @@ public:
 
   /**
    * @brief 查找插件库文件
-   * 
+   *
    * @param plugin_name 插件名称
    * @return 库文件的完整路径，如果未找到则返回空字符串
    */
   std::string findPluginLibrary(const std::string& plugin_name) const;
+
+  /**
+   * @brief 获取配置加载器
+   *
+   * @return 配置加载器指针，如果未加载配置则返回 nullptr
+   */
+  const ConfigLoader* getConfigLoader() const { return config_loader_.get(); }
 
 private:
   // 插件信息映射表
@@ -101,6 +111,9 @@ private:
   // 插件搜索路径
   std::vector<std::string> search_paths_;
 
+  // 配置加载器
+  std::unique_ptr<ConfigLoader> config_loader_;
+
   /**
    * @brief 初始化默认搜索路径
    */
@@ -108,7 +121,7 @@ private:
 
   /**
    * @brief 解析插件名称到库文件名
-   * 
+   *
    * 例如: "GridMapBuilder" -> "libgrid_map_builder_plugin.so"
    */
   std::string pluginNameToLibraryName(const std::string& plugin_name) const;

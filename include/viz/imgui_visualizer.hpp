@@ -51,6 +51,7 @@ public:
   void drawBEVObstacles(const planning::BEVObstacles& obstacles) override;
   void drawDynamicObstacles(const std::vector<planning::DynamicObstacle>& obstacles) override;
   void drawOccupancyGrid(const planning::OccupancyGrid& grid) override;
+  void drawESDFMap(const planning::ESDFMap& esdf_map);
   void drawTrajectory(const std::vector<plugin::TrajectoryPoint>& trajectory,
                       const std::string& planner_name = "") override;
   void updatePlanningContext(const planning::PlanningContext& context) override;
@@ -80,6 +81,7 @@ private:
   planning::BEVObstacles bev_obstacles_;
   std::vector<planning::DynamicObstacle> dynamic_obstacles_;
   std::unique_ptr<planning::OccupancyGrid> occupancy_grid_;
+  std::unique_ptr<planning::ESDFMap> esdf_map_;
   std::vector<plugin::TrajectoryPoint> trajectory_;
   std::string planner_name_;
   std::map<std::string, std::string> debug_info_;
@@ -102,6 +104,7 @@ private:
     bool show_bev_obstacles = true;    // 显示 BEV 静态障碍物
     bool show_dynamic_obstacles = true;// 显示动态障碍物
     bool show_occupancy_grid = true;   // 显示栅格地图
+    bool show_esdf_map = true;         // 显示 ESDF 地图
     bool show_coordinate_axes = true;  // 显示坐标轴
     bool show_grid_lines = true;       // 显示网格线
   } viz_options_;

@@ -45,6 +45,12 @@ public:
 
     // 可视化配置
     bool enable_visualization = false;      // 启用实时可视化
+
+    // 🔧 栅格地图配置
+    double grid_map_width = 100.0;         // 栅格地图宽度 (m)
+    double grid_map_height = 100.0;        // 栅格地图高度 (m)
+    double grid_resolution = 0.1;          // 栅格分辨率 (m/cell)
+    double grid_inflation_radius = 0.5;    // 膨胀半径 (m)
   };
 
   AlgorithmManager();

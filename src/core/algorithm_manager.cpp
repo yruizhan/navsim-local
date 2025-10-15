@@ -7,6 +7,7 @@
 #include "plugin/framework/plugin_init.hpp"
 #include "plugin/framework/plugin_loader.hpp"
 #include "plugin/framework/dynamic_plugin_loader.hpp"
+#include "plugin/framework/config_loader.hpp"
 #include "plugin/preprocessing/preprocessing.hpp"
 #include "viz/visualizer_interface.hpp"
 #include <iostream>
@@ -444,22 +445,38 @@ void AlgorithmManager::setupPluginSystem() {
   // 1. 创建感知插件管理器
   perception_plugin_manager_ = std::make_unique<plugin::PerceptionPluginManager>();
 
-  // 创建插件配置
+  // 从配置加载器获取插件配置
   std::vector<plugin::PerceptionPluginConfig> perception_configs;
 
-  // GridMapBuilder 插件
-  plugin::PerceptionPluginConfig grid_config;
-  grid_config.name = "GridMapBuilder";
-  grid_config.enabled = true;
-  grid_config.priority = 100;
-  grid_config.params = {
-    {"resolution", 0.1},
-    {"map_width", 100.0},
-    {"map_height", 100.0},
-    {"obstacle_cost", 100},
-    {"inflation_radius", 0.5}
-  };
-  perception_configs.push_back(grid_config);
+  if (plugin_loader.getConfigLoader()) {
+    // 使用配置文件中的插件列表
+    perception_configs = plugin_loader.getConfigLoader()->getPerceptionPluginConfigs();
+    std::cout << "[AlgorithmManager] Loaded " << perception_configs.size()
+              << " perception plugin configs from file" << std::endl;
+  }
+
+  // 如果配置文件中没有插件配置，使用默认的 GridMapBuilder
+  if (perception_configs.empty()) {
+    std::cout << "[AlgorithmManager] No perception plugins in config, using default GridMapBuilder" << std::endl;
+    plugin::PerceptionPluginConfig grid_config;
+    grid_config.name = "GridMapBuilder";
+    grid_config.enabled = true;
+    grid_config.priority = 100;
+    grid_config.params = {
+      {"resolution", config_.grid_resolution},
+      {"map_width", config_.grid_map_width},
+      {"map_height", config_.grid_map_height},
+      {"obstacle_cost", 100},
+      {"inflation_radius", config_.grid_inflation_radius}
+    };
+    perception_configs.push_back(grid_config);
+
+    std::cout << "[AlgorithmManager] GridMapBuilder config:" << std::endl;
+    std::cout << "  - map_width: " << config_.grid_map_width << " m" << std::endl;
+    std::cout << "  - map_height: " << config_.grid_map_height << " m" << std::endl;
+    std::cout << "  - resolution: " << config_.grid_resolution << " m/cell" << std::endl;
+    std::cout << "  - inflation_radius: " << config_.grid_inflation_radius << " m" << std::endl;
+  }
 
   // 加载插件
   perception_plugin_manager_->loadPlugins(perception_configs);

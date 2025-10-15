@@ -8,6 +8,7 @@
 
 // 包含所有插件的注册函数声明
 #include "perception/grid_map_builder/include/grid_map_builder_plugin_register.hpp"
+#include "perception/esdf_builder/include/esdf_builder_plugin_register.hpp"
 #include "planning/straight_line/include/straight_line_planner_plugin_register.hpp"
 #include "planning/astar/include/astar_planner_plugin_register.hpp"
 
@@ -22,6 +23,7 @@ namespace plugins {
 void loadAllBuiltinPlugins() {
   // 调用所有插件的注册函数
   perception::registerGridMapBuilderPlugin();
+  perception::registerESDFBuilderPlugin();
   planning::registerStraightLinePlannerPlugin();
   planning::registerAStarPlannerPlugin();
 }

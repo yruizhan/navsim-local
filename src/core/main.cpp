@@ -75,6 +75,30 @@ bool load_config_from_file(const std::string& config_path, navsim::AlgorithmMana
       }
     }
 
+    // 🔧 读取栅格地图配置
+    if (j.contains("perception") && j["perception"].contains("plugins")) {
+      for (const auto& plugin : j["perception"]["plugins"]) {
+        if (plugin.contains("name") && plugin["name"] == "GridMapBuilder") {
+          if (plugin.contains("params")) {
+            const auto& params = plugin["params"];
+            if (params.contains("map_width")) {
+              config.grid_map_width = params["map_width"].get<double>();
+            }
+            if (params.contains("map_height")) {
+              config.grid_map_height = params["map_height"].get<double>();
+            }
+            if (params.contains("resolution")) {
+              config.grid_resolution = params["resolution"].get<double>();
+            }
+            if (params.contains("inflation_radius")) {
+              config.grid_inflation_radius = params["inflation_radius"].get<double>();
+            }
+          }
+          break;  // 找到 GridMapBuilder 后退出循环
+        }
+      }
+    }
+
     std::cout << "✅ Loaded config from: " << config_path << std::endl;
     return true;
   } catch (const std::exception& e) {

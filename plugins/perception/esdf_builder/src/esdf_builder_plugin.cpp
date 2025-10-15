@@ -1,0 +1,388 @@
+#include "esdf_builder_plugin.hpp"
+#include "plugin/framework/plugin_registry.hpp"
+#include <iostream>
+#include <chrono>
+
+namespace navsim {
+namespace plugins {
+namespace perception {
+
+// ========== 元数据 ==========
+
+plugin::PerceptionPluginMetadata ESDFBuilderPlugin::getMetadata() const {
+  plugin::PerceptionPluginMetadata metadata;
+  metadata.name = "ESDFBuilder";
+  metadata.version = "1.0.0";
+  metadata.description = "ESDF (Euclidean Signed Distance Field) map builder";
+  metadata.author = "NavSim Team";
+  return metadata;
+}
+
+// ========== 初始化 ==========
+
+bool ESDFBuilderPlugin::initialize(const nlohmann::json& config) {
+  try {
+    // 读取配置参数
+    if (config.contains("resolution")) {
+      resolution_ = config["resolution"].get<double>();
+    }
+    if (config.contains("map_width")) {
+      map_width_ = config["map_width"].get<double>();
+    }
+    if (config.contains("map_height")) {
+      map_height_ = config["map_height"].get<double>();
+    }
+    if (config.contains("max_distance")) {
+      max_distance_ = config["max_distance"].get<double>();
+    }
+    if (config.contains("include_dynamic")) {
+      include_dynamic_ = config["include_dynamic"].get<bool>();
+    }
+
+    // 计算栅格尺寸
+    grid_width_ = static_cast<int>(std::ceil(map_width_ / resolution_));
+    grid_height_ = static_cast<int>(std::ceil(map_height_ / resolution_));
+    int grid_size = grid_width_ * grid_height_;
+
+    // 分配内存
+    occupancy_grid_.resize(grid_size, 0);
+
+    std::cout << "[ESDFBuilder] Initialized with parameters:" << std::endl;
+    std::cout << "  - resolution: " << resolution_ << " m/cell" << std::endl;
+    std::cout << "  - map_width: " << map_width_ << " m" << std::endl;
+    std::cout << "  - map_height: " << map_height_ << " m" << std::endl;
+    std::cout << "  - grid_size: " << grid_width_ << " x " << grid_height_ << " cells" << std::endl;
+    std::cout << "  - max_distance: " << max_distance_ << " m" << std::endl;
+    std::cout << "  - include_dynamic: " << (include_dynamic_ ? "true" : "false") << std::endl;
+
+    return true;
+  } catch (const std::exception& e) {
+    std::cerr << "[ESDFBuilder] Initialization failed: " << e.what() << std::endl;
+    return false;
+  }
+}
+
+// ========== 主处理函数 ==========
+
+bool ESDFBuilderPlugin::process(const plugin::PerceptionInput& input, planning::PlanningContext& context) {
+  auto start_time = std::chrono::high_resolution_clock::now();
+
+  // 计算地图原点（以自车为中心）
+  planning::Point2d origin;
+  origin.x = input.ego.pose.x - map_width_ / 2.0;
+  origin.y = input.ego.pose.y - map_height_ / 2.0;
+
+  // 1. 构建占据栅格
+  buildOccupancyGrid(input, origin);
+
+  // 2. 创建 ESDF 地图
+  auto esdf_map = std::make_unique<planning::ESDFMap>();
+  esdf_map->config.origin = origin;
+  esdf_map->config.resolution = resolution_;
+  esdf_map->config.width = grid_width_;
+  esdf_map->config.height = grid_height_;
+  esdf_map->config.max_distance = max_distance_;
+  esdf_map->data.resize(grid_width_ * grid_height_, max_distance_);
+
+  // 3. 计算 ESDF
+  computeESDF(*esdf_map);
+
+  // 4. 存储到规划上下文
+  context.esdf_map = std::move(esdf_map);
+
+  auto end_time = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+
+  // 每 60 帧打印一次统计信息
+  static int frame_count = 0;
+  if (++frame_count % 60 == 0) {
+    std::cout << "[ESDFBuilder] Processing time: " << duration.count() / 1000.0 << " ms" << std::endl;
+  }
+
+  return true;
+}
+
+// ========== 构建占据栅格 ==========
+
+void ESDFBuilderPlugin::buildOccupancyGrid(const plugin::PerceptionInput& input, const planning::Point2d& origin) {
+  // 清空栅格
+  std::fill(occupancy_grid_.begin(), occupancy_grid_.end(), 0);
+
+  // 处理静态障碍物 - 圆形
+  for (const auto& circle : input.bev_obstacles.circles) {
+    // 计算圆形障碍物覆盖的栅格范围
+    int min_x = std::max(0, static_cast<int>((circle.center.x - circle.radius - origin.x) / resolution_));
+    int max_x = std::min(grid_width_ - 1, static_cast<int>((circle.center.x + circle.radius - origin.x) / resolution_));
+    int min_y = std::max(0, static_cast<int>((circle.center.y - circle.radius - origin.y) / resolution_));
+    int max_y = std::min(grid_height_ - 1, static_cast<int>((circle.center.y + circle.radius - origin.y) / resolution_));
+
+    for (int x = min_x; x <= max_x; ++x) {
+      for (int y = min_y; y <= max_y; ++y) {
+        // 计算栅格中心坐标
+        double cell_x = origin.x + (x + 0.5) * resolution_;
+        double cell_y = origin.y + (y + 0.5) * resolution_;
+
+        if (isInCircle(cell_x, cell_y, circle)) {
+          occupancy_grid_[y * grid_width_ + x] = 100;  // 占据
+        }
+      }
+    }
+  }
+
+  // 处理静态障碍物 - 矩形
+  for (const auto& rect : input.bev_obstacles.rectangles) {
+    // 计算矩形障碍物的包络范围（考虑旋转）
+    double half_diag = std::sqrt(rect.width * rect.width + rect.height * rect.height) / 2.0;
+    int min_x = std::max(0, static_cast<int>((rect.pose.x - half_diag - origin.x) / resolution_));
+    int max_x = std::min(grid_width_ - 1, static_cast<int>((rect.pose.x + half_diag - origin.x) / resolution_));
+    int min_y = std::max(0, static_cast<int>((rect.pose.y - half_diag - origin.y) / resolution_));
+    int max_y = std::min(grid_height_ - 1, static_cast<int>((rect.pose.y + half_diag - origin.y) / resolution_));
+
+    for (int x = min_x; x <= max_x; ++x) {
+      for (int y = min_y; y <= max_y; ++y) {
+        double cell_x = origin.x + (x + 0.5) * resolution_;
+        double cell_y = origin.y + (y + 0.5) * resolution_;
+
+        if (isInRectangle(cell_x, cell_y, rect)) {
+          occupancy_grid_[y * grid_width_ + x] = 100;
+        }
+      }
+    }
+  }
+
+  // 处理静态障碍物 - 多边形
+  for (const auto& polygon : input.bev_obstacles.polygons) {
+    // 计算多边形的包络盒
+    if (polygon.vertices.empty()) continue;
+
+    double min_px = polygon.vertices[0].x, max_px = polygon.vertices[0].x;
+    double min_py = polygon.vertices[0].y, max_py = polygon.vertices[0].y;
+    for (const auto& v : polygon.vertices) {
+      min_px = std::min(min_px, v.x);
+      max_px = std::max(max_px, v.x);
+      min_py = std::min(min_py, v.y);
+      max_py = std::max(max_py, v.y);
+    }
+
+    int min_x = std::max(0, static_cast<int>((min_px - origin.x) / resolution_));
+    int max_x = std::min(grid_width_ - 1, static_cast<int>((max_px - origin.x) / resolution_));
+    int min_y = std::max(0, static_cast<int>((min_py - origin.y) / resolution_));
+    int max_y = std::min(grid_height_ - 1, static_cast<int>((max_py - origin.y) / resolution_));
+
+    for (int x = min_x; x <= max_x; ++x) {
+      for (int y = min_y; y <= max_y; ++y) {
+        double cell_x = origin.x + (x + 0.5) * resolution_;
+        double cell_y = origin.y + (y + 0.5) * resolution_;
+
+        if (isInPolygon(cell_x, cell_y, polygon)) {
+          occupancy_grid_[y * grid_width_ + x] = 100;
+        }
+      }
+    }
+  }
+
+  // 处理动态障碍物
+  if (include_dynamic_) {
+    for (const auto& dyn_obs : input.dynamic_obstacles) {
+      // 使用当前位置
+      double half_diag = std::sqrt(dyn_obs.width * dyn_obs.width + dyn_obs.length * dyn_obs.length) / 2.0;
+      int min_x = std::max(0, static_cast<int>((dyn_obs.current_pose.x - half_diag - origin.x) / resolution_));
+      int max_x = std::min(grid_width_ - 1, static_cast<int>((dyn_obs.current_pose.x + half_diag - origin.x) / resolution_));
+      int min_y = std::max(0, static_cast<int>((dyn_obs.current_pose.y - half_diag - origin.y) / resolution_));
+      int max_y = std::min(grid_height_ - 1, static_cast<int>((dyn_obs.current_pose.y + half_diag - origin.y) / resolution_));
+
+      for (int x = min_x; x <= max_x; ++x) {
+        for (int y = min_y; y <= max_y; ++y) {
+          double cell_x = origin.x + (x + 0.5) * resolution_;
+          double cell_y = origin.y + (y + 0.5) * resolution_;
+
+          if (isInDynamicObstacle(cell_x, cell_y, dyn_obs)) {
+            occupancy_grid_[y * grid_width_ + x] = 100;
+          }
+        }
+      }
+    }
+  }
+}
+
+// ========== 计算 ESDF ==========
+
+void ESDFBuilderPlugin::computeESDF(planning::ESDFMap& esdf_map) {
+  int size = grid_width_ * grid_height_;
+  std::vector<double> tmp_buffer(size, 0.0);
+  std::vector<double> distance_buffer_pos(size, 0.0);
+  std::vector<double> distance_buffer_neg(size, 0.0);
+
+  // ========== 计算正距离场（自由空间到障碍物的距离） ==========
+
+  // X 方向扫描
+  for (int x = 0; x < grid_width_; ++x) {
+    fillESDF(
+      [&](int y) {
+        return occupancy_grid_[y * grid_width_ + x] >= 50 ?
+          0.0 : std::numeric_limits<double>::max();
+      },
+      [&](int y, double val) { tmp_buffer[y * grid_width_ + x] = val; },
+      0, grid_height_ - 1, grid_height_
+    );
+  }
+
+  // Y 方向扫描
+  for (int y = 0; y < grid_height_; ++y) {
+    fillESDF(
+      [&](int x) { return tmp_buffer[y * grid_width_ + x]; },
+      [&](int x, double val) {
+        distance_buffer_pos[y * grid_width_ + x] = resolution_ * std::sqrt(val);
+      },
+      0, grid_width_ - 1, grid_width_
+    );
+  }
+
+  // ========== 计算负距离场（障碍物内部到自由空间的距离） ==========
+
+  // X 方向扫描
+  for (int x = 0; x < grid_width_; ++x) {
+    fillESDF(
+      [&](int y) {
+        return occupancy_grid_[y * grid_width_ + x] < 50 ?
+          0.0 : std::numeric_limits<double>::max();
+      },
+      [&](int y, double val) { tmp_buffer[y * grid_width_ + x] = val; },
+      0, grid_height_ - 1, grid_height_
+    );
+  }
+
+  // Y 方向扫描
+  for (int y = 0; y < grid_height_; ++y) {
+    fillESDF(
+      [&](int x) { return tmp_buffer[y * grid_width_ + x]; },
+      [&](int x, double val) {
+        distance_buffer_neg[y * grid_width_ + x] = resolution_ * std::sqrt(val);
+      },
+      0, grid_width_ - 1, grid_width_
+    );
+  }
+
+  // ========== 合并正负距离场 ==========
+  for (int i = 0; i < size; ++i) {
+    esdf_map.data[i] = distance_buffer_pos[i];
+    if (distance_buffer_neg[i] > 0.0) {
+      esdf_map.data[i] += (-distance_buffer_neg[i] + resolution_);
+    }
+    // 截断到最大距离
+    esdf_map.data[i] = std::min(esdf_map.data[i], max_distance_);
+  }
+}
+
+// ========== Felzenszwalb 距离变换算法 ==========
+
+template <typename F_get_val, typename F_set_val>
+void ESDFBuilderPlugin::fillESDF(
+    F_get_val f_get_val,
+    F_set_val f_set_val,
+    int start,
+    int end,
+    int dim_size) {
+
+  std::vector<int> v(dim_size);
+  std::vector<double> z(dim_size + 1);
+
+  int k = start;
+  v[start] = start;
+  z[start] = -std::numeric_limits<double>::max();
+  z[start + 1] = std::numeric_limits<double>::max();
+
+  for (int q = start + 1; q <= end; ++q) {
+    k++;
+    double s;
+
+    do {
+      k--;
+      s = ((f_get_val(q) + q * q) - (f_get_val(v[k]) + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    } while (s <= z[k]);
+
+    k++;
+    v[k] = q;
+    z[k] = s;
+    z[k + 1] = std::numeric_limits<double>::max();
+  }
+
+  k = start;
+  for (int q = start; q <= end; ++q) {
+    while (z[k + 1] < q) k++;
+    double val = (q - v[k]) * (q - v[k]) + f_get_val(v[k]);
+    f_set_val(q, val);
+  }
+}
+
+// ========== 辅助函数 ==========
+
+bool ESDFBuilderPlugin::isInCircle(double x, double y, const planning::BEVObstacles::Circle& circle) const {
+  double dx = x - circle.center.x;
+  double dy = y - circle.center.y;
+  double dist_sq = dx * dx + dy * dy;
+  return dist_sq <= circle.radius * circle.radius;
+}
+
+bool ESDFBuilderPlugin::isInRectangle(double x, double y, const planning::BEVObstacles::Rectangle& rect) const {
+  // 将点转换到矩形局部坐标系
+  double dx = x - rect.pose.x;
+  double dy = y - rect.pose.y;
+
+  double cos_theta = std::cos(-rect.pose.yaw);
+  double sin_theta = std::sin(-rect.pose.yaw);
+
+  double local_x = dx * cos_theta - dy * sin_theta;
+  double local_y = dx * sin_theta + dy * cos_theta;
+
+  // 检查是否在矩形内
+  return std::abs(local_x) <= rect.width / 2.0 && std::abs(local_y) <= rect.height / 2.0;
+}
+
+bool ESDFBuilderPlugin::isInPolygon(double x, double y, const planning::BEVObstacles::Polygon& polygon) const {
+  // 射线法判断点是否在多边形内
+  if (polygon.vertices.size() < 3) return false;
+
+  int count = 0;
+  int n = polygon.vertices.size();
+
+  for (int i = 0; i < n; ++i) {
+    const auto& v1 = polygon.vertices[i];
+    const auto& v2 = polygon.vertices[(i + 1) % n];
+
+    // 检查射线是否与边相交
+    if ((v1.y > y) != (v2.y > y)) {
+      double x_intersect = (v2.x - v1.x) * (y - v1.y) / (v2.y - v1.y) + v1.x;
+      if (x < x_intersect) {
+        count++;
+      }
+    }
+  }
+
+  return (count % 2) == 1;
+}
+
+bool ESDFBuilderPlugin::isInDynamicObstacle(double x, double y, const planning::DynamicObstacle& obs) const {
+  // 将动态障碍物视为矩形
+  double dx = x - obs.current_pose.x;
+  double dy = y - obs.current_pose.y;
+
+  double cos_theta = std::cos(-obs.current_pose.yaw);
+  double sin_theta = std::sin(-obs.current_pose.yaw);
+
+  double local_x = dx * cos_theta - dy * sin_theta;
+  double local_y = dx * sin_theta + dy * cos_theta;
+
+  return std::abs(local_x) <= obs.width / 2.0 && std::abs(local_y) <= obs.length / 2.0;
+}
+
+} // namespace perception
+} // namespace plugins
+} // namespace navsim
+
+// 注册插件
+namespace {
+static navsim::plugin::PerceptionPluginRegistrar<navsim::plugins::perception::ESDFBuilderPlugin>
+    esdf_builder_registrar("ESDFBuilder");
+}
+

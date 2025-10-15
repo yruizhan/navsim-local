@@ -3,7 +3,7 @@
 #include <vector>
 #include <memory>
 #include <unordered_map>
-#include <Eigen/Dense>
+#include <string>
 
 namespace navsim {
 namespace planning {
@@ -78,6 +78,71 @@ struct OccupancyGrid {
   // 工具函数
   bool isOccupied(int x, int y, uint8_t threshold = 50) const;
   Point2d cellToWorld(int x, int y) const;
+  std::pair<int, int> worldToCell(const Point2d& point) const;
+};
+
+/**
+ * @brief ESDF (Euclidean Signed Distance Field) 地图
+ * 适用于：基于梯度的轨迹优化、碰撞检测、安全距离查询
+ *
+ * ESDF 存储每个栅格到最近障碍物的欧几里得距离：
+ * - 正值：自由空间，表示到最近障碍物的距离
+ * - 负值：障碍物内部，表示到最近自由空间的距离
+ * - 零值：障碍物边界
+ */
+struct ESDFMap {
+  struct Config {
+    Point2d origin;      // 地图原点 (m)
+    double resolution;   // 栅格分辨率 (m/cell)
+    int width;           // 宽度 (cells)
+    int height;          // 高度 (cells)
+    double max_distance; // 最大距离 (m)，超过此距离的值会被截断
+  } config;
+
+  std::vector<double> data;  // 距离场数据 (m)，正值=自由空间，负值=障碍物内部
+
+  // 工具函数
+
+  /**
+   * @brief 获取指定栅格的距离值
+   * @param x 栅格 X 坐标
+   * @param y 栅格 Y 坐标
+   * @return 距离值 (m)，如果超出范围返回 max_distance
+   */
+  double getDistance(int x, int y) const;
+
+  /**
+   * @brief 获取世界坐标点的距离值（双线性插值）
+   * @param point 世界坐标点
+   * @return 距离值 (m)
+   */
+  double getDistanceInterpolated(const Point2d& point) const;
+
+  /**
+   * @brief 获取世界坐标点的距离值和梯度（双线性插值）
+   * @param point 世界坐标点
+   * @param gradient 输出梯度向量（指向远离障碍物的方向）
+   * @return 距离值 (m)
+   */
+  double getDistanceWithGradient(const Point2d& point, Point2d& gradient) const;
+
+  /**
+   * @brief 检查点是否在安全距离内
+   * @param x 栅格 X 坐标
+   * @param y 栅格 Y 坐标
+   * @param safe_distance 安全距离 (m)
+   * @return true 如果距离小于安全距离
+   */
+  bool isWithinSafeDistance(int x, int y, double safe_distance) const;
+
+  /**
+   * @brief 将栅格坐标转换为世界坐标
+   */
+  Point2d cellToWorld(int x, int y) const;
+
+  /**
+   * @brief 将世界坐标转换为栅格坐标
+   */
   std::pair<int, int> worldToCell(const Point2d& point) const;
 };
 
@@ -237,6 +302,7 @@ struct PlanningContext {
 
   // 可选数据 (根据规划器需求选择性填充)
   std::unique_ptr<OccupancyGrid> occupancy_grid;        // 栅格地图
+  std::unique_ptr<ESDFMap> esdf_map;                    // ESDF 距离场地图
   std::unique_ptr<BEVObstacles> bev_obstacles;          // BEV障碍物
   std::unique_ptr<LaneLines> lane_lines;                // 车道线
   std::vector<DynamicObstacle> dynamic_obstacles;       // 动态障碍物

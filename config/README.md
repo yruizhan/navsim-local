@@ -1,108 +1,105 @@
 # NavSim-Local 配置文件
 
-本目录包含 navsim-local 插件系统的配置文件。
-
-> **🎉 新功能**: NavSim 现在支持**动态插件加载**！
-> 你可以通过修改配置文件来选择使用哪些插件，**无需重新编译程序**。
-> 插件会在运行时从 `.so` 文件动态加载。
+本目录包含 navsim-local 的配置文件。
 
 ## 📁 目录结构
 
 ```
 config/
-├── README.md                    # 本文档
-├── default.json.example         # 默认配置模板
-└── examples/                    # 配置示例
-    ├── astar_planner.json       # 使用 A* 规划器
-    ├── minimal.json             # 最小配置
-    └── ...
+├── README.md       # 本文档
+└── default.json    # 默认配置（带可视化）
 ```
 
 ## 🚀 快速开始
 
-### 1. 创建配置文件
+### 1. 使用默认配置
+
+默认配置已启用可视化和 A* 规划器：
 
 ```bash
-# 复制默认配置
-cp config/default.json.example config/my_config.json
-
-# 或使用示例配置
-cp config/examples/astar_planner.json config/my_config.json
+./build_with_visualization.sh
 ```
 
-### 2. 编辑配置文件
+脚本会自动编译并运行，无需手动指定配置文件。
 
-根据需求修改 `my_config.json`：
+### 2. 修改配置
+
+直接编辑 `config/default.json`：
 
 ```json
 {
+  "algorithm": {
+    "primary_planner": "AStarPlanner",
+    "enable_visualization": true
+  },
   "perception": {
     "plugins": [
       {
-        "name": "GridBuilderPlugin",
-        "enabled": true,
+        "name": "GridMapBuilder",
         "params": {
+          "map_width": 30.0,
+          "map_height": 30.0,
           "resolution": 0.1
         }
       }
     ]
-  },
-  "planning": {
-    "primary_planner": "AStarPlannerPlugin"
   }
 }
 ```
 
-### 3. 使用配置文件
+### 3. 手动运行
+
+如果需要手动运行：
 
 ```bash
-./build/navsim_algo ws://127.0.0.1:8080/ws demo --config=config/my_config.json
+./build/navsim_algo ws://127.0.0.1:8080/ws demo --config=config/default.json
 ```
 
 ## 📋 配置文件结构
 
-### 顶层结构
+### 算法配置
 
 ```json
 {
-  "version": "1.0",              // 配置文件版本
-  "algorithm": { ... },          // 算法管理器配置
-  "perception": { ... },         // 感知插件配置
-  "planning": { ... },           // 规划器插件配置
-  "visualization": { ... }       // 可视化配置
+  "algorithm": {
+    "primary_planner": "AStarPlanner",        // 主规划器
+    "fallback_planner": "StraightLinePlanner", // 降级规划器
+    "enable_planner_fallback": true,          // 启用降级
+    "max_computation_time_ms": 25.0,          // 最大计算时间
+    "verbose_logging": true,                  // 详细日志
+    "enable_visualization": true              // 启用可视化
+  }
 }
 ```
 
 ### 感知配置
 
-感知配置分为两部分：
-
-1. **公共前置处理层** - 固定流程，解析原始数据
-2. **感知插件层** - 可扩展，构建地图表示
-
 ```json
 {
   "perception": {
     "preprocessing": {
-      "bev_extraction": {          // BEV 数据提取配置
-        "detection_range": 50.0,
-        "confidence_threshold": 0.5
+      "bev_extraction": {
+        "enabled": true,
+        "static_obstacle_inflation": 0.2,
+        "dynamic_obstacle_inflation": 0.3
       },
-      "dynamic_prediction": {      // 动态障碍物预测配置
+      "dynamic_prediction": {
+        "enabled": true,
         "prediction_horizon": 5.0,
         "time_step": 0.1
       }
     },
-
     "plugins": [
       {
-        "name": "PluginName",      // 插件名称 (必需)
-        "enabled": true,           // 是否启用 (默认: true)
-        "priority": 1,             // 执行优先级 (数字越小越先执行)
-        "description": "...",      // 描述 (可选)
-        "params": {                // 插件参数
-          "param1": value1,
-          "param2": value2
+        "name": "GridMapBuilder",
+        "enabled": true,
+        "priority": 100,
+        "params": {
+          "resolution": 0.1,
+          "map_width": 30.0,
+          "map_height": 30.0,
+          "obstacle_cost": 100,
+          "inflation_radius": 0.0
         }
       }
     ]
@@ -110,196 +107,73 @@ cp config/examples/astar_planner.json config/my_config.json
 }
 ```
 
-### 规划器插件配置
+### 规划器配置
 
 ```json
 {
   "planning": {
-    "primary_planner": "PlannerName",     // 主规划器
-    "fallback_planner": "FallbackName",   // 降级规划器
-    "enable_fallback": true,              // 是否启用降级
-    
-    "planners": {
-      "PlannerName": {                    // 规划器参数
-        "param1": value1,
-        "param2": value2
-      }
+    "StraightLinePlanner": {
+      "default_velocity": 1.5,
+      "time_step": 0.1,
+      "planning_horizon": 5.0,
+      "use_trapezoidal_profile": true,
+      "max_acceleration": 1.0
+    },
+    "AStarPlanner": {
+      "time_step": 0.1,
+      "heuristic_weight": 1.2,
+      "step_size": 0.5,
+      "max_iterations": 10000,
+      "goal_tolerance": 0.5,
+      "default_velocity": 1.5
     }
   }
 }
 ```
 
-## 📚 配置示例
+## ⚙️ 关键参数说明
 
-### 示例 1: 默认配置
-
-使用所有感知插件和直线规划器：
-
-```bash
-./build/navsim_algo ws://127.0.0.1:8080/ws demo --config=config/default.json.example
-```
-
-### 示例 2: A* 规划器
-
-使用栅格地图和 A* 规划器：
-
-```bash
-./build/navsim_algo ws://127.0.0.1:8080/ws demo --config=config/examples/astar_planner.json
-```
-
-### 示例 3: 最小配置
-
-只使用必需的插件：
-
-```bash
-./build/navsim_algo ws://127.0.0.1:8080/ws demo --config=config/examples/minimal.json
-```
-
-## 🔧 可用插件
-
-### 公共前置处理层
-
-前置处理层是固定流程，不是插件，负责解析原始数据。
-
-| 模块 | 功能 | 配置项 |
-|------|------|--------|
-| BEV 提取器 | 从 WorldTick 提取 BEV 障碍物 | `perception.preprocessing.bev_extraction` |
-| 动态障碍物预测器 | 生成动态障碍物预测轨迹 | `perception.preprocessing.dynamic_prediction` |
-
-### 感知插件
-
-感知插件从标准化数据构建地图表示。
-
-| 插件名称 | 功能 | 必需参数 |
-|---------|------|---------|
-| `GridMapBuilderPlugin` | 从 BEV 障碍物构建栅格占据地图 | `resolution`, `map_width`, `map_height` |
-| `ESDFBuilderPlugin` | 从 BEV 障碍物构建 ESDF 距离场 | `resolution`, `max_distance` |
-| `PointCloudMapBuilderPlugin` | 构建点云地图 | `resolution` |
-
-### 规划器插件
-
-| 插件名称 | 类型 | 必需感知数据 |
-|---------|------|-------------|
-| `StraightLinePlannerPlugin` | 几何 | 无 |
-| `AStarPlannerPlugin` | 搜索 | `occupancy_grid` |
-| `OptimizationPlannerPlugin` | 优化 | `bev_obstacles` |
-
-## ⚙️ 参数说明
-
-### 前置处理参数
-
-#### bev_extraction
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `detection_range` | double | 50.0 | 检测范围 (m) |
-| `confidence_threshold` | double | 0.5 | 置信度阈值 |
-| `include_static` | bool | true | 是否包含静态障碍物 |
-| `include_dynamic` | bool | true | 是否包含动态障碍物 |
-
-#### dynamic_prediction
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `prediction_horizon` | double | 5.0 | 预测时域 (s) |
-| `time_step` | double | 0.1 | 时间步长 (s) |
-| `max_trajectories` | int | 3 | 每个障碍物最大轨迹数 |
-| `prediction_model` | string | "constant_velocity" | 预测模型 |
-
-### 感知插件参数
-
-#### GridMapBuilderPlugin
+### 栅格地图参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `resolution` | double | 0.1 | 栅格分辨率 (m/cell) |
-| `map_width` | double | 100.0 | 地图宽度 (m) |
-| `map_height` | double | 100.0 | 地图高度 (m) |
-| `inflation_radius` | double | 0.3 | 膨胀半径 (m) |
+| `map_width` | double | 30.0 | 地图宽度 (m) |
+| `map_height` | double | 30.0 | 地图高度 (m) |
+| `inflation_radius` | double | 0.0 | 膨胀半径 (m) |
 | `obstacle_cost` | int | 100 | 障碍物代价值 |
 
-#### ESDFBuilderPlugin
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `resolution` | double | 0.1 | 距离场分辨率 (m) |
-| `max_distance` | double | 10.0 | 最大距离 (m) |
-
-### 规划器插件参数
-
-#### StraightLinePlannerPlugin
+### A* 规划器参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `time_step` | double | 0.1 | 时间步长 (s) |
-| `default_velocity` | double | 2.0 | 默认速度 (m/s) |
-| `max_acceleration` | double | 2.0 | 最大加速度 (m/s²) |
-| `arrival_tolerance` | double | 0.5 | 到达容差 (m) |
-
-#### AStarPlannerPlugin
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `time_step` | double | 0.1 | 时间步长 (s) |
-| `heuristic_weight` | double | 1.0 | 启发式权重 |
+| `heuristic_weight` | double | 1.2 | 启发式权重 |
 | `step_size` | double | 0.5 | 搜索步长 (m) |
 | `max_iterations` | int | 10000 | 最大迭代次数 |
 | `goal_tolerance` | double | 0.5 | 目标容差 (m) |
+| `default_velocity` | double | 1.5 | 默认速度 (m/s) |
 
-#### OptimizationPlannerPlugin
+## ⌨️ 可视化控制
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `time_step` | double | 0.1 | 时间步长 (s) |
-| `max_iterations` | int | 100 | 最大迭代次数 |
-| `convergence_tolerance` | double | 0.001 | 收敛容差 |
-| `smoothness_weight` | double | 1.0 | 平滑性权重 |
-| `obstacle_weight` | double | 10.0 | 障碍物权重 |
-| `goal_weight` | double | 5.0 | 目标权重 |
+| 按键 | 功能 |
+|------|------|
+| `F` | 切换跟随自车模式 |
+| `+` | 放大视图 |
+| `-` | 缩小视图 |
+| `ESC` | 关闭窗口 |
 
-## 🐛 故障排查
-
-### 配置文件未加载
-
-**症状**: 程序使用默认配置
-
-**检查**:
-1. 配置文件路径是否正确？
-2. JSON 格式是否有效？（使用 JSON 验证器）
-3. 是否使用了 `--config` 参数？
-
-### 插件未启用
-
-**症状**: 插件未执行
-
-**检查**:
-1. `enabled` 是否设置为 `true`？
-2. 插件名称是否正确？
-3. 是否缺少必需参数？
-
-### 规划器不可用
-
-**症状**: 规划器降级或失败
-
-**检查**:
-1. 是否启用了必需的感知插件？
-2. 规划器参数是否有效？
-3. 查看日志中的错误信息
-
-## 📖 更多信息
-
-- **[插件架构设计](../docs/PLUGIN_ARCHITECTURE_DESIGN.md)** - 完整设计文档
-- **[快速参考](../docs/PLUGIN_QUICK_REFERENCE.md)** - 插件开发速查
-- **[执行摘要](../docs/PLUGIN_ARCHITECTURE_SUMMARY.md)** - 核心要点
+**Legend 面板**：
+- 勾选/取消勾选可视化元素
+- 点击 "Fit Occupancy Grid" 自动适应栅格地图
 
 ## 💡 提示
 
-1. **从示例开始**: 复制一个示例配置并修改
-2. **逐步调整**: 先使用默认值，再根据需求调整
-3. **启用日志**: 设置 `verbose_logging: true` 查看详细信息
-4. **测试配置**: 使用短时间测试验证配置是否正确
+1. **快速开始**: 直接运行 `./build_with_visualization.sh`
+2. **调整地图大小**: 修改 `map_width` 和 `map_height`（建议 10-50m）
+3. **启用日志**: `verbose_logging: true` 查看详细信息
+4. **切换规划器**: 修改 `primary_planner` 为 `StraightLinePlanner` 或 `AStarPlanner`
 
 ---
 
-**最后更新**: 2025-10-13
-
+**最后更新**: 2025-10-15
