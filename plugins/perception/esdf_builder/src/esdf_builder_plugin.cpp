@@ -47,6 +47,15 @@ bool ESDFBuilderPlugin::initialize(const nlohmann::json& config) {
     // 分配内存
     occupancy_grid_.resize(grid_size, 0);
 
+    // 创建并初始化 ESDFMap 对象
+    esdf_map_ = std::make_shared<navsim::perception::ESDFMap>();
+    navsim::perception::ESDFMap::Config esdf_config;
+    esdf_config.resolution = resolution_;
+    esdf_config.map_width = map_width_;
+    esdf_config.map_height = map_height_;
+    esdf_config.max_distance = max_distance_;
+    esdf_map_->initialize(esdf_config);
+
     std::cout << "[ESDFBuilder] Initialized with parameters:" << std::endl;
     std::cout << "  - resolution: " << resolution_ << " m/cell" << std::endl;
     std::cout << "  - map_width: " << map_width_ << " m" << std::endl;
@@ -75,20 +84,48 @@ bool ESDFBuilderPlugin::process(const plugin::PerceptionInput& input, planning::
   // 1. 构建占据栅格
   buildOccupancyGrid(input, origin);
 
-  // 2. 创建 ESDF 地图
-  auto esdf_map = std::make_unique<planning::ESDFMap>();
-  esdf_map->config.origin = origin;
-  esdf_map->config.resolution = resolution_;
-  esdf_map->config.width = grid_width_;
-  esdf_map->config.height = grid_height_;
-  esdf_map->config.max_distance = max_distance_;
-  esdf_map->data.resize(grid_width_ * grid_height_, max_distance_);
+  // 2. 更新 ESDFMap
+  Eigen::Vector2d origin_eigen(origin.x, origin.y);
+  esdf_map_->buildFromOccupancyGrid(occupancy_grid_, origin_eigen);
 
   // 3. 计算 ESDF
-  computeESDF(*esdf_map);
+  esdf_map_->computeESDF();
 
-  // 4. 存储到规划上下文
-  context.esdf_map = std::move(esdf_map);
+  // 4. 创建 NavSim 格式的 ESDF 地图（用于可视化和其他用途）
+  auto esdf_map_navsim = std::make_unique<planning::ESDFMap>();
+  esdf_map_navsim->config.origin = origin;
+  esdf_map_navsim->config.resolution = resolution_;
+  esdf_map_navsim->config.width = grid_width_;
+  esdf_map_navsim->config.height = grid_height_;
+  esdf_map_navsim->config.max_distance = max_distance_;
+  esdf_map_navsim->data.resize(grid_width_ * grid_height_, max_distance_);
+
+  // 复制距离场数据（取绝对值，因为可视化需要正值）
+  int occupied_count = 0;
+  double min_dist = std::numeric_limits<double>::max();
+  double max_dist = std::numeric_limits<double>::lowest();
+
+  for (int i = 0; i < grid_width_ * grid_height_; ++i) {
+    double dist_grid = esdf_map_->getDistance(esdf_map_->vectornum2gridIndex(i));
+    double dist_meter = std::abs(dist_grid) * resolution_;  // 取绝对值
+    esdf_map_navsim->data[i] = dist_meter;
+
+    if (dist_grid < 0.01) {  // 障碍物
+      occupied_count++;
+    }
+    min_dist = std::min(min_dist, dist_meter);
+    max_dist = std::max(max_dist, dist_meter);
+  }
+
+  // 每 60 帧打印一次 ESDF 统计信息
+  static int esdf_frame_count = 0;
+  if (++esdf_frame_count % 60 == 0) {
+    std::cout << "[ESDFBuilder] ESDF stats: occupied=" << occupied_count
+              << ", min_dist=" << min_dist << "m, max_dist=" << max_dist << "m" << std::endl;
+  }
+
+  // 5. 存储到规划上下文
+  context.esdf_map = std::move(esdf_map_navsim);
 
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -202,116 +239,6 @@ void ESDFBuilderPlugin::buildOccupancyGrid(const plugin::PerceptionInput& input,
         }
       }
     }
-  }
-}
-
-// ========== 计算 ESDF ==========
-
-void ESDFBuilderPlugin::computeESDF(planning::ESDFMap& esdf_map) {
-  int size = grid_width_ * grid_height_;
-  std::vector<double> tmp_buffer(size, 0.0);
-  std::vector<double> distance_buffer_pos(size, 0.0);
-  std::vector<double> distance_buffer_neg(size, 0.0);
-
-  // ========== 计算正距离场（自由空间到障碍物的距离） ==========
-
-  // X 方向扫描
-  for (int x = 0; x < grid_width_; ++x) {
-    fillESDF(
-      [&](int y) {
-        return occupancy_grid_[y * grid_width_ + x] >= 50 ?
-          0.0 : std::numeric_limits<double>::max();
-      },
-      [&](int y, double val) { tmp_buffer[y * grid_width_ + x] = val; },
-      0, grid_height_ - 1, grid_height_
-    );
-  }
-
-  // Y 方向扫描
-  for (int y = 0; y < grid_height_; ++y) {
-    fillESDF(
-      [&](int x) { return tmp_buffer[y * grid_width_ + x]; },
-      [&](int x, double val) {
-        distance_buffer_pos[y * grid_width_ + x] = resolution_ * std::sqrt(val);
-      },
-      0, grid_width_ - 1, grid_width_
-    );
-  }
-
-  // ========== 计算负距离场（障碍物内部到自由空间的距离） ==========
-
-  // X 方向扫描
-  for (int x = 0; x < grid_width_; ++x) {
-    fillESDF(
-      [&](int y) {
-        return occupancy_grid_[y * grid_width_ + x] < 50 ?
-          0.0 : std::numeric_limits<double>::max();
-      },
-      [&](int y, double val) { tmp_buffer[y * grid_width_ + x] = val; },
-      0, grid_height_ - 1, grid_height_
-    );
-  }
-
-  // Y 方向扫描
-  for (int y = 0; y < grid_height_; ++y) {
-    fillESDF(
-      [&](int x) { return tmp_buffer[y * grid_width_ + x]; },
-      [&](int x, double val) {
-        distance_buffer_neg[y * grid_width_ + x] = resolution_ * std::sqrt(val);
-      },
-      0, grid_width_ - 1, grid_width_
-    );
-  }
-
-  // ========== 合并正负距离场 ==========
-  for (int i = 0; i < size; ++i) {
-    esdf_map.data[i] = distance_buffer_pos[i];
-    if (distance_buffer_neg[i] > 0.0) {
-      esdf_map.data[i] += (-distance_buffer_neg[i] + resolution_);
-    }
-    // 截断到最大距离
-    esdf_map.data[i] = std::min(esdf_map.data[i], max_distance_);
-  }
-}
-
-// ========== Felzenszwalb 距离变换算法 ==========
-
-template <typename F_get_val, typename F_set_val>
-void ESDFBuilderPlugin::fillESDF(
-    F_get_val f_get_val,
-    F_set_val f_set_val,
-    int start,
-    int end,
-    int dim_size) {
-
-  std::vector<int> v(dim_size);
-  std::vector<double> z(dim_size + 1);
-
-  int k = start;
-  v[start] = start;
-  z[start] = -std::numeric_limits<double>::max();
-  z[start + 1] = std::numeric_limits<double>::max();
-
-  for (int q = start + 1; q <= end; ++q) {
-    k++;
-    double s;
-
-    do {
-      k--;
-      s = ((f_get_val(q) + q * q) - (f_get_val(v[k]) + v[k] * v[k])) / (2 * q - 2 * v[k]);
-    } while (s <= z[k]);
-
-    k++;
-    v[k] = q;
-    z[k] = s;
-    z[k + 1] = std::numeric_limits<double>::max();
-  }
-
-  k = start;
-  for (int q = start; q <= end; ++q) {
-    while (z[k + 1] < q) k++;
-    double val = (q - v[k]) * (q - v[k]) + f_get_val(v[k]);
-    f_set_val(q, val);
   }
 }
 

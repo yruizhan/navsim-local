@@ -3,31 +3,34 @@
 #include "plugin/framework/perception_plugin_interface.hpp"
 #include "plugin/data/perception_input.hpp"
 #include "core/planning_context.hpp"
+#include "esdf_map.hpp"
 #include <nlohmann/json.hpp>
 #include <vector>
 #include <memory>
-#include <cmath>
-#include <limits>
-#include <algorithm>
 
 namespace navsim {
 namespace plugins {
 namespace perception {
 
 /**
- * @brief ESDF (Euclidean Signed Distance Field) 地图构建插件
- * 
- * 功能：
- * - 从 BEV 障碍物和动态障碍物构建占据栅格
- * - 使用 Felzenszwalb 距离变换算法计算 ESDF
- * - 支持双线性插值和梯度计算
- * 
+ * @brief ESDF (Euclidean Signed Distance Field) 地图构建插件（重构版）
+ *
+ * 本插件负责：
+ * 1. 从 BEV 障碍物和动态障碍物构建占据栅格
+ * 2. 委托给 ESDFMap 类进行 ESDF 计算
+ * 3. 提供 SDFmap 兼容接口供 JPS 规划器使用
+ *
+ * 架构：
+ * - ESDFBuilderPlugin：插件接口层（本类）
+ * - ESDFMap：算法实现层（包含所有 SDFmap 兼容函数）
+ *
  * 输入：
  * - context.bev_obstacles (静态障碍物：圆形、矩形、多边形)
  * - context.dynamic_obstacles (动态障碍物)
- * 
+ *
  * 输出：
  * - context.esdf_map (ESDF 距离场)
+ * - 通过 getESDFMap() 提供 SDFmap 兼容接口
  */
 class ESDFBuilderPlugin : public plugin::PerceptionPluginInterface {
 public:
@@ -57,52 +60,42 @@ public:
    */
   bool process(const plugin::PerceptionInput& input, planning::PlanningContext& context) override;
 
+  /**
+   * @brief 获取 ESDFMap 对象（供 JPS 规划器使用）
+   * @return ESDFMap 对象的共享指针
+   */
+  std::shared_ptr<navsim::perception::ESDFMap> getESDFMap() const {
+    return esdf_map_;
+  }
+
 private:
   // ========== 配置参数 ==========
-  
+
   double resolution_ = 0.1;        // 栅格分辨率 (m/cell)
   double map_width_ = 30.0;        // 地图宽度 (m)
   double map_height_ = 30.0;       // 地图高度 (m)
   double max_distance_ = 5.0;      // 最大距离 (m)
   bool include_dynamic_ = true;    // 是否包含动态障碍物
 
-  // ========== 内部数据 ==========
-  
+  // ========== 核心对象（组合模式） ==========
+
+  std::shared_ptr<navsim::perception::ESDFMap> esdf_map_;  // ESDF 地图对象
+
+  // ========== 临时数据 ==========
+
   std::vector<uint8_t> occupancy_grid_;  // 临时占据栅格 (0=自由, 100=占据)
   int grid_width_ = 0;                   // 栅格宽度 (cells)
   int grid_height_ = 0;                  // 栅格高度 (cells)
 
-  // ========== 核心算法 ==========
-  
+  // ========== 辅助函数 ==========
+
   /**
    * @brief 从 BEV 障碍物构建占据栅格
    * @param input 感知输入
    * @param origin 地图原点
    */
   void buildOccupancyGrid(const plugin::PerceptionInput& input, const planning::Point2d& origin);
-  
-  /**
-   * @brief 计算 ESDF 距离场
-   * @param esdf_map 输出的 ESDF 地图
-   */
-  void computeESDF(planning::ESDFMap& esdf_map);
-  
-  /**
-   * @brief Felzenszwalb 距离变换算法（1D）
-   * 
-   * 这是一个高效的 1D 距离变换算法，时间复杂度 O(n)
-   * 
-   * @param f_get_val 获取输入值的函数
-   * @param f_set_val 设置输出值的函数
-   * @param start 起始索引
-   * @param end 结束索引
-   * @param dim_size 维度大小
-   */
-  template <typename F_get_val, typename F_set_val>
-  void fillESDF(F_get_val f_get_val, F_set_val f_set_val, int start, int end, int dim_size);
-  
-  // ========== 辅助函数 ==========
-  
+
   /**
    * @brief 检查点是否在圆形障碍物内
    */
@@ -117,7 +110,7 @@ private:
    * @brief 检查点是否在多边形障碍物内（射线法）
    */
   bool isInPolygon(double x, double y, const planning::BEVObstacles::Polygon& polygon) const;
-  
+
   /**
    * @brief 检查点是否在动态障碍物内
    */

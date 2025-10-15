@@ -1,6 +1,7 @@
 # ESDF Builder Plugin
 add_library(esdf_builder_plugin SHARED
   src/esdf_builder_plugin.cpp
+  src/esdf_map.cpp
   src/register.cpp
 )
 
