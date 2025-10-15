@@ -19,10 +19,58 @@ planning::EgoVehicle BasicDataConverter::convertEgo(
   // 时间戳
   ego.timestamp = world_tick.stamp();
 
-  // 车辆参数（从 world_tick 中获取底盘配置）
+  // 🔧 车辆参数（从 world_tick 中获取底盘配置）
   if (world_tick.has_chassis()) {
     const auto& chassis = world_tick.chassis();
+
+    // 底盘类型
+    ego.chassis_model = chassis.model();
+
+    // 基础参数
     ego.kinematics.wheelbase = chassis.wheelbase();
+    ego.kinematics.track_width = chassis.track_width();
+
+    // 🔧 几何参数（从 ChassisGeometry 中获取）
+    if (chassis.has_geometry()) {
+      const auto& geom = chassis.geometry();
+      ego.kinematics.body_length = geom.body_length();
+      ego.kinematics.body_width = geom.body_width();
+      ego.kinematics.width = geom.body_width();  // 兼容旧字段
+      ego.kinematics.height = geom.body_height();
+      ego.kinematics.front_overhang = geom.front_overhang();
+      ego.kinematics.rear_overhang = geom.rear_overhang();
+      ego.kinematics.wheel_radius = geom.wheel_radius();
+    } else {
+      // 🔧 如果没有 geometry，根据底盘类型使用默认值
+      if (ego.chassis_model == "differential") {
+        // 差速底盘：小型机器人
+        ego.kinematics.body_length = ego.kinematics.wheelbase * 1.5;
+        ego.kinematics.body_width = ego.kinematics.track_width * 1.2;
+        ego.kinematics.width = ego.kinematics.body_width;
+        ego.kinematics.height = 0.3;
+        ego.kinematics.front_overhang = ego.kinematics.wheelbase * 0.25;
+        ego.kinematics.rear_overhang = ego.kinematics.wheelbase * 0.25;
+        ego.kinematics.wheel_radius = 0.1;
+      } else if (ego.chassis_model == "ackermann" || ego.chassis_model == "four_wheel") {
+        // 阿克曼/四轮底盘：标准汽车
+        ego.kinematics.body_length = ego.kinematics.wheelbase * 1.7;
+        ego.kinematics.body_width = ego.kinematics.track_width * 1.1;
+        ego.kinematics.width = ego.kinematics.body_width;
+        ego.kinematics.height = 1.5;
+        ego.kinematics.front_overhang = ego.kinematics.wheelbase * 0.35;
+        ego.kinematics.rear_overhang = ego.kinematics.wheelbase * 0.35;
+        ego.kinematics.wheel_radius = 0.3;
+      } else if (ego.chassis_model == "tracked") {
+        // 履带底盘
+        ego.kinematics.body_length = ego.kinematics.wheelbase * 1.4;
+        ego.kinematics.body_width = ego.kinematics.track_width;
+        ego.kinematics.width = ego.kinematics.body_width;
+        ego.kinematics.height = 0.5;
+        ego.kinematics.front_overhang = ego.kinematics.wheelbase * 0.2;
+        ego.kinematics.rear_overhang = ego.kinematics.wheelbase * 0.2;
+        ego.kinematics.wheel_radius = 0.15;
+      }
+    }
 
     // 运动限制
     if (chassis.has_limits()) {
@@ -38,7 +86,16 @@ planning::EgoVehicle BasicDataConverter::convertEgo(
     }
   } else {
     // 使用默认车辆参数（差速底盘）
+    ego.chassis_model = "differential";
     ego.kinematics.wheelbase = 0.5;
+    ego.kinematics.track_width = 0.4;
+    ego.kinematics.body_length = 0.75;
+    ego.kinematics.body_width = 0.48;
+    ego.kinematics.width = 0.48;
+    ego.kinematics.height = 0.3;
+    ego.kinematics.front_overhang = 0.125;
+    ego.kinematics.rear_overhang = 0.125;
+    ego.kinematics.wheel_radius = 0.1;
     ego.limits.max_velocity = 2.0;
     ego.limits.max_acceleration = 2.0;
     ego.limits.max_steer_angle = 0.0;

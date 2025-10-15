@@ -166,13 +166,20 @@ struct EgoVehicle {
   Twist2d twist;
   double timestamp = 0.0;
 
+  // 🔧 底盘类型
+  std::string chassis_model = "differential";  // "differential", "ackermann", "tracked", "four_wheel"
+
   // 车辆参数
   struct Kinematics {
     double wheelbase = 2.8;       // 轴距 (m)
+    double track_width = 2.0;     // 轮距 (m)
     double front_overhang = 1.0;  // 前悬 (m)
     double rear_overhang = 1.0;   // 后悬 (m)
     double width = 2.0;           // 车宽 (m)
     double height = 1.8;          // 车高 (m)
+    double body_length = 4.8;     // 车体长度 (m)
+    double body_width = 2.0;      // 车体宽度 (m)
+    double wheel_radius = 0.3;    // 轮半径 (m)
   } kinematics;
 
   // 动力学约束

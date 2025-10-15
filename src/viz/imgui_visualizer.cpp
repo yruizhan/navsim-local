@@ -775,29 +775,205 @@ void ImGuiVisualizer::renderScene() {
 
   // 🎨 7. 绘制自车（最后绘制，确保在最上层）（可选）
   if (viz_options_.show_ego) {
-    auto ego_pos = worldToScreen(ego_.pose.x, ego_.pose.y);
-    float car_length = ego_.kinematics.wheelbase * config_.pixels_per_meter * view_state_.zoom;
-    float car_width = ego_.kinematics.width * config_.pixels_per_meter * view_state_.zoom;
+    // 🔧 根据底盘类型选择不同的可视化方式
+    double cos_yaw = std::cos(ego_.pose.yaw);
+    double sin_yaw = std::sin(ego_.pose.yaw);
 
-    // 简化：绘制为圆形 + 朝向箭头
-    draw_list->AddCircleFilled(
-      ImVec2(ego_pos.x, ego_pos.y),
-      std::max(car_length, car_width) / 2.0f,
-      IM_COL32(0, 255, 0, 200)  // 绿色半透明
-    );
+    if (ego_.chassis_model == "differential") {
+      // 🤖 差速底盘：圆形机器人 + 方向指示
+      double radius = ego_.kinematics.body_width / 2.0;
+      auto ego_pos = worldToScreen(ego_.pose.x, ego_.pose.y);
 
-    // 绘制朝向箭头
-    float arrow_len = car_length * 0.8f;
-    auto arrow_end = worldToScreen(
-      ego_.pose.x + arrow_len / config_.pixels_per_meter / view_state_.zoom * std::cos(ego_.pose.yaw),
-      ego_.pose.y + arrow_len / config_.pixels_per_meter / view_state_.zoom * std::sin(ego_.pose.yaw)
-    );
-    draw_list->AddLine(
-      ImVec2(ego_pos.x, ego_pos.y),
-      ImVec2(arrow_end.x, arrow_end.y),
-      IM_COL32(0, 255, 0, 255),  // 绿色箭头
-      3.0f
-    );
+      // 绘制圆形本体
+      float radius_pixels = radius * config_.pixels_per_meter * view_state_.zoom;
+      draw_list->AddCircleFilled(
+        ImVec2(ego_pos.x, ego_pos.y),
+        radius_pixels,
+        IM_COL32(0, 200, 0, 180)  // 绿色半透明
+      );
+      draw_list->AddCircle(
+        ImVec2(ego_pos.x, ego_pos.y),
+        radius_pixels,
+        IM_COL32(0, 255, 0, 255),  // 绿色边框
+        0, 2.0f
+      );
+
+      // 绘制方向指示线（从中心到边缘）
+      double front_x = ego_.pose.x + radius * cos_yaw;
+      double front_y = ego_.pose.y + radius * sin_yaw;
+      auto front_pos = worldToScreen(front_x, front_y);
+      draw_list->AddLine(
+        ImVec2(ego_pos.x, ego_pos.y),
+        ImVec2(front_pos.x, front_pos.y),
+        IM_COL32(255, 255, 0, 255),  // 黄色方向线
+        3.0f
+      );
+
+    } else if (ego_.chassis_model == "ackermann" || ego_.chassis_model == "four_wheel") {
+      // 🚗 阿克曼/四轮底盘：矩形车辆轮廓
+      // 🔧 标准定义：后轴中心为原点，X 轴向前为正，Y 轴向左为正
+      double half_width = ego_.kinematics.body_width / 2.0;
+
+      // 🔧 前保险杠 X 坐标 = wheelbase + front_overhang（从后轴开始）
+      double x_front = ego_.kinematics.wheelbase + ego_.kinematics.front_overhang;
+      // 🔧 后保险杠 X 坐标 = -rear_overhang（从后轴开始，向后为负）
+      double x_rear = -ego_.kinematics.rear_overhang;
+
+      // 🔧 计算车辆的四个角点（在车辆局部坐标系中，后轴为原点）
+      // 逆时针顺序：前左 → 前右 → 后右 → 后左
+      std::vector<std::pair<double, double>> corners_local = {
+        {x_front, half_width},   // P1: 前左 = (wheelbase + front_overhang, +width/2)
+        {x_front, -half_width},  // P2: 前右 = (wheelbase + front_overhang, -width/2)
+        {x_rear, -half_width},   // P3: 后右 = (-rear_overhang, -width/2)
+        {x_rear, half_width}     // P4: 后左 = (-rear_overhang, +width/2)
+      };
+
+      // 转换到世界坐标系并转换到屏幕坐标
+      std::vector<ImVec2> corners_screen;
+      for (const auto& corner : corners_local) {
+        double world_x = ego_.pose.x + corner.first * cos_yaw - corner.second * sin_yaw;
+        double world_y = ego_.pose.y + corner.first * sin_yaw + corner.second * cos_yaw;
+        auto screen_pos = worldToScreen(world_x, world_y);
+        corners_screen.push_back(ImVec2(screen_pos.x, screen_pos.y));
+      }
+
+      // 绘制车辆轮廓
+      draw_list->AddConvexPolyFilled(
+        corners_screen.data(),
+        corners_screen.size(),
+        IM_COL32(0, 200, 0, 180)  // 绿色半透明
+      );
+      draw_list->AddPolyline(
+        corners_screen.data(),
+        corners_screen.size(),
+        IM_COL32(0, 255, 0, 255),  // 绿色边框
+        ImDrawFlags_Closed,
+        2.0f
+      );
+
+      // 🔧 绘制车头方向指示（黄色圆点）
+      // 车头中心 = 后轴 + (wheelbase + front_overhang) * 方向向量
+      double front_center_x = ego_.pose.x + x_front * cos_yaw;
+      double front_center_y = ego_.pose.y + x_front * sin_yaw;
+      auto front_pos = worldToScreen(front_center_x, front_center_y);
+      draw_list->AddCircleFilled(
+        ImVec2(front_pos.x, front_pos.y),
+        5.0f,
+        IM_COL32(255, 255, 0, 255)  // 黄色圆点
+      );
+
+      // 绘制后轴位置（红色小圆点）
+      auto rear_axle_pos = worldToScreen(ego_.pose.x, ego_.pose.y);
+      draw_list->AddCircleFilled(
+        ImVec2(rear_axle_pos.x, rear_axle_pos.y),
+        3.0f,
+        IM_COL32(255, 0, 0, 255)  // 红色圆点
+      );
+
+    } else if (ego_.chassis_model == "tracked") {
+      // 🚜 履带底盘：矩形 + 履带纹理
+      double total_length = ego_.kinematics.front_overhang +
+                           ego_.kinematics.wheelbase +
+                           ego_.kinematics.rear_overhang;
+      double half_width = ego_.kinematics.body_width / 2.0;
+
+      // 车体矩形
+      std::vector<std::pair<double, double>> body_corners = {
+        {total_length, half_width * 0.8},   // 前左（车体稍窄）
+        {total_length, -half_width * 0.8},  // 前右
+        {-ego_.kinematics.rear_overhang, -half_width * 0.8},  // 后右
+        {-ego_.kinematics.rear_overhang, half_width * 0.8}    // 后左
+      };
+
+      std::vector<ImVec2> body_screen;
+      for (const auto& corner : body_corners) {
+        double world_x = ego_.pose.x + corner.first * cos_yaw - corner.second * sin_yaw;
+        double world_y = ego_.pose.y + corner.first * sin_yaw + corner.second * cos_yaw;
+        auto screen_pos = worldToScreen(world_x, world_y);
+        body_screen.push_back(ImVec2(screen_pos.x, screen_pos.y));
+      }
+
+      // 绘制车体
+      draw_list->AddConvexPolyFilled(
+        body_screen.data(),
+        body_screen.size(),
+        IM_COL32(0, 200, 0, 180)
+      );
+      draw_list->AddPolyline(
+        body_screen.data(),
+        body_screen.size(),
+        IM_COL32(0, 255, 0, 255),
+        ImDrawFlags_Closed,
+        2.0f
+      );
+
+      // 绘制左右履带（矩形）
+      for (int side = -1; side <= 1; side += 2) {  // -1 = 右侧, 1 = 左侧
+        std::vector<std::pair<double, double>> track_corners = {
+          {total_length, side * half_width},
+          {total_length, side * half_width * 0.8},
+          {-ego_.kinematics.rear_overhang, side * half_width * 0.8},
+          {-ego_.kinematics.rear_overhang, side * half_width}
+        };
+
+        std::vector<ImVec2> track_screen;
+        for (const auto& corner : track_corners) {
+          double world_x = ego_.pose.x + corner.first * cos_yaw - corner.second * sin_yaw;
+          double world_y = ego_.pose.y + corner.first * sin_yaw + corner.second * cos_yaw;
+          auto screen_pos = worldToScreen(world_x, world_y);
+          track_screen.push_back(ImVec2(screen_pos.x, screen_pos.y));
+        }
+
+        draw_list->AddConvexPolyFilled(
+          track_screen.data(),
+          track_screen.size(),
+          IM_COL32(50, 50, 50, 200)  // 深灰色履带
+        );
+      }
+
+      // 绘制车头方向指示
+      double front_center_x = ego_.pose.x + total_length * cos_yaw;
+      double front_center_y = ego_.pose.y + total_length * sin_yaw;
+      auto front_pos = worldToScreen(front_center_x, front_center_y);
+      draw_list->AddCircleFilled(
+        ImVec2(front_pos.x, front_pos.y),
+        5.0f,
+        IM_COL32(255, 255, 0, 255)
+      );
+
+    } else {
+      // 未知底盘类型：使用默认矩形
+      double half_length = ego_.kinematics.body_length / 2.0;
+      double half_width = ego_.kinematics.body_width / 2.0;
+
+      std::vector<std::pair<double, double>> corners_local = {
+        {half_length, half_width},
+        {half_length, -half_width},
+        {-half_length, -half_width},
+        {-half_length, half_width}
+      };
+
+      std::vector<ImVec2> corners_screen;
+      for (const auto& corner : corners_local) {
+        double world_x = ego_.pose.x + corner.first * cos_yaw - corner.second * sin_yaw;
+        double world_y = ego_.pose.y + corner.first * sin_yaw + corner.second * cos_yaw;
+        auto screen_pos = worldToScreen(world_x, world_y);
+        corners_screen.push_back(ImVec2(screen_pos.x, screen_pos.y));
+      }
+
+      draw_list->AddConvexPolyFilled(
+        corners_screen.data(),
+        corners_screen.size(),
+        IM_COL32(0, 200, 0, 180)
+      );
+      draw_list->AddPolyline(
+        corners_screen.data(),
+        corners_screen.size(),
+        IM_COL32(0, 255, 0, 255),
+        ImDrawFlags_Closed,
+        2.0f
+      );
+    }
   }  // 🎨 结束自车绘制
 
   ImGui::End();

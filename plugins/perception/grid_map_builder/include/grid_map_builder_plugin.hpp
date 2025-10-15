@@ -92,14 +92,23 @@ public:
 
 private:
   /**
-   * @brief 添加 BEV 障碍物到栅格地图
-   * 
+   * @brief 添加 BEV 静态障碍物到栅格地图
+   *
    * @param bev_obstacles BEV 障碍物
    * @param grid 栅格地图（输出）
    */
   void addBEVObstacles(const planning::BEVObstacles& bev_obstacles,
                       planning::OccupancyGrid& grid);
-  
+
+  /**
+   * @brief 添加动态障碍物到栅格地图
+   *
+   * @param dynamic_obstacles 动态障碍物列表
+   * @param grid 栅格地图（输出）
+   */
+  void addDynamicObstacles(const std::vector<planning::DynamicObstacle>& dynamic_obstacles,
+                          planning::OccupancyGrid& grid);
+
   /**
    * @brief 添加圆形障碍物
    */
@@ -141,7 +150,7 @@ private:
   
   /**
    * @brief 设置栅格单元的值
-   * 
+   *
    * @param grid_x 栅格坐标 x
    * @param grid_y 栅格坐标 y
    * @param value 值
@@ -149,7 +158,18 @@ private:
    */
   void setGridCell(int grid_x, int grid_y, uint8_t value,
                   planning::OccupancyGrid& grid);
-  
+
+  /**
+   * @brief 判断点是否在多边形内部（射线法）
+   *
+   * @param px 点的 x 坐标
+   * @param py 点的 y 坐标
+   * @param vertices 多边形顶点
+   * @return 是否在多边形内部
+   */
+  bool isPointInPolygon(double px, double py,
+                       const std::vector<planning::Point2d>& vertices) const;
+
   // 配置参数
   Config config_;
   

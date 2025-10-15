@@ -88,10 +88,13 @@ bool GridMapBuilderPlugin::process(const plugin::PerceptionInput& input,
   
   // 初始化栅格数据
   grid->data.resize(grid->config.width * grid->config.height, 0);
-  
-  // 添加 BEV 障碍物
+
+  // 添加 BEV 静态障碍物
   addBEVObstacles(input.bev_obstacles, *grid);
-  
+
+  // 🔧 添加动态障碍物
+  addDynamicObstacles(input.dynamic_obstacles, *grid);
+
   // 膨胀处理
   inflateObstacles(*grid);
   
@@ -136,13 +139,13 @@ void GridMapBuilderPlugin::addBEVObstacles(const planning::BEVObstacles& bev_obs
     addCircleObstacle(circle, grid);
     stats_.total_obstacles++;
   }
-  
+
   // 添加矩形障碍物
   for (const auto& rect : bev_obstacles.rectangles) {
     addRectangleObstacle(rect, grid);
     stats_.total_obstacles++;
   }
-  
+
   // 添加多边形障碍物
   for (const auto& polygon : bev_obstacles.polygons) {
     addPolygonObstacle(polygon, grid);
@@ -150,23 +153,86 @@ void GridMapBuilderPlugin::addBEVObstacles(const planning::BEVObstacles& bev_obs
   }
 }
 
+void GridMapBuilderPlugin::addDynamicObstacles(
+    const std::vector<planning::DynamicObstacle>& dynamic_obstacles,
+    planning::OccupancyGrid& grid) {
+  // 🔧 添加动态障碍物的当前位置到栅格地图
+  for (const auto& dyn_obs : dynamic_obstacles) {
+    if (dyn_obs.shape_type == "circle") {
+      // 圆形动态障碍物
+      planning::BEVObstacles::Circle circle;
+      circle.center.x = dyn_obs.current_pose.x;
+      circle.center.y = dyn_obs.current_pose.y;
+      // 使用 length 和 width 的平均值作为半径
+      circle.radius = (dyn_obs.length + dyn_obs.width) / 4.0;
+      circle.confidence = 1.0;
+
+      addCircleObstacle(circle, grid);
+      stats_.total_obstacles++;
+    } else if (dyn_obs.shape_type == "rectangle") {
+      // 矩形动态障碍物
+      planning::BEVObstacles::Rectangle rect;
+      rect.pose.x = dyn_obs.current_pose.x;
+      rect.pose.y = dyn_obs.current_pose.y;
+      rect.pose.yaw = dyn_obs.current_pose.yaw;
+      rect.width = dyn_obs.width;
+      rect.height = dyn_obs.length;  // 注意：DynamicObstacle 的 length 对应矩形的 height
+      rect.confidence = 1.0;
+
+      addRectangleObstacle(rect, grid);
+      stats_.total_obstacles++;
+    } else {
+      // 未知形状，使用包围盒的对角线作为圆形半径
+      planning::BEVObstacles::Circle circle;
+      circle.center.x = dyn_obs.current_pose.x;
+      circle.center.y = dyn_obs.current_pose.y;
+      circle.radius = std::sqrt(dyn_obs.length * dyn_obs.length +
+                                dyn_obs.width * dyn_obs.width) / 2.0;
+      circle.confidence = 1.0;
+
+      addCircleObstacle(circle, grid);
+      stats_.total_obstacles++;
+    }
+  }
+}
+
 void GridMapBuilderPlugin::addCircleObstacle(
     const planning::BEVObstacles::Circle& circle,
     planning::OccupancyGrid& grid) {
-  // 计算圆形在栅格中的范围
-  int center_x, center_y;
-  if (!worldToGrid(circle.center.x, circle.center.y, grid, center_x, center_y)) {
-    return;  // 圆心不在地图范围内
+  // 🔧 修复：精确计算哪些栅格格子的中心点在圆内
+
+  // 计算圆形在栅格中的范围（边界框）
+  int min_x, min_y, max_x, max_y;
+  if (!worldToGrid(circle.center.x - circle.radius, circle.center.y - circle.radius, grid, min_x, min_y)) {
+    min_x = 0;
+    min_y = 0;
   }
-  
-  int radius_cells = static_cast<int>(std::ceil(circle.radius / grid.config.resolution));
-  
-  // 遍历圆形范围内的所有栅格
-  for (int dy = -radius_cells; dy <= radius_cells; ++dy) {
-    for (int dx = -radius_cells; dx <= radius_cells; ++dx) {
-      // 检查是否在圆内
-      if (dx * dx + dy * dy <= radius_cells * radius_cells) {
-        setGridCell(center_x + dx, center_y + dy, config_.obstacle_cost, grid);
+  if (!worldToGrid(circle.center.x + circle.radius, circle.center.y + circle.radius, grid, max_x, max_y)) {
+    max_x = grid.config.width - 1;
+    max_y = grid.config.height - 1;
+  }
+
+  // 限制在地图范围内
+  min_x = std::max(0, min_x);
+  min_y = std::max(0, min_y);
+  max_x = std::min(grid.config.width - 1, max_x);
+  max_y = std::min(grid.config.height - 1, max_y);
+
+  // 遍历边界框内的所有栅格
+  for (int gy = min_y; gy <= max_y; ++gy) {
+    for (int gx = min_x; gx <= max_x; ++gx) {
+      // 计算栅格格子中心点的世界坐标
+      double cell_center_x = grid.config.origin.x + (gx + 0.5) * grid.config.resolution;
+      double cell_center_y = grid.config.origin.y + (gy + 0.5) * grid.config.resolution;
+
+      // 计算格子中心到圆心的距离
+      double dx = cell_center_x - circle.center.x;
+      double dy = cell_center_y - circle.center.y;
+      double dist_sq = dx * dx + dy * dy;
+
+      // 如果格子中心在圆内，标记为占据
+      if (dist_sq <= circle.radius * circle.radius) {
+        setGridCell(gx, gy, config_.obstacle_cost, grid);
       }
     }
   }
@@ -175,48 +241,133 @@ void GridMapBuilderPlugin::addCircleObstacle(
 void GridMapBuilderPlugin::addRectangleObstacle(
     const planning::BEVObstacles::Rectangle& rect,
     planning::OccupancyGrid& grid) {
-  // 简化实现：将矩形转换为圆形（使用对角线的一半作为半径）
-  double radius = std::sqrt(rect.width * rect.width + rect.height * rect.height) / 2.0;
-  
-  planning::BEVObstacles::Circle circle;
-  circle.center.x = rect.pose.x;
-  circle.center.y = rect.pose.y;
-  circle.radius = radius;
-  circle.confidence = rect.confidence;
-  
-  addCircleObstacle(circle, grid);
+  // 🔧 修复：精确计算旋转矩形内部的栅格格子
+
+  // 计算矩形的包围盒（考虑旋转）
+  double cos_yaw = std::cos(rect.pose.yaw);
+  double sin_yaw = std::sin(rect.pose.yaw);
+
+  // 矩形的四个角点（在局部坐标系中）
+  double half_width = rect.width / 2.0;
+  double half_height = rect.height / 2.0;
+
+  // 计算包围盒
+  double max_extent = std::sqrt(half_width * half_width + half_height * half_height);
+
+  int min_x, min_y, max_x, max_y;
+  if (!worldToGrid(rect.pose.x - max_extent, rect.pose.y - max_extent, grid, min_x, min_y)) {
+    min_x = 0;
+    min_y = 0;
+  }
+  if (!worldToGrid(rect.pose.x + max_extent, rect.pose.y + max_extent, grid, max_x, max_y)) {
+    max_x = grid.config.width - 1;
+    max_y = grid.config.height - 1;
+  }
+
+  // 限制在地图范围内
+  min_x = std::max(0, min_x);
+  min_y = std::max(0, min_y);
+  max_x = std::min(grid.config.width - 1, max_x);
+  max_y = std::min(grid.config.height - 1, max_y);
+
+  // 遍历包围盒内的所有栅格
+  for (int gy = min_y; gy <= max_y; ++gy) {
+    for (int gx = min_x; gx <= max_x; ++gx) {
+      // 计算栅格格子中心点的世界坐标
+      double cell_center_x = grid.config.origin.x + (gx + 0.5) * grid.config.resolution;
+      double cell_center_y = grid.config.origin.y + (gy + 0.5) * grid.config.resolution;
+
+      // 将格子中心点转换到矩形的局部坐标系
+      double dx = cell_center_x - rect.pose.x;
+      double dy = cell_center_y - rect.pose.y;
+
+      // 旋转到矩形的局部坐标系（逆旋转）
+      double local_x = dx * cos_yaw + dy * sin_yaw;
+      double local_y = -dx * sin_yaw + dy * cos_yaw;
+
+      // 检查是否在矩形内部
+      if (std::abs(local_x) <= half_width && std::abs(local_y) <= half_height) {
+        setGridCell(gx, gy, config_.obstacle_cost, grid);
+      }
+    }
+  }
 }
 
 void GridMapBuilderPlugin::addPolygonObstacle(
     const planning::BEVObstacles::Polygon& polygon,
     planning::OccupancyGrid& grid) {
   if (polygon.vertices.empty()) return;
-  
-  // 简化实现：计算多边形的包围圆
-  double center_x = 0.0, center_y = 0.0;
+
+  // 🔧 修复：使用射线法精确判断点是否在多边形内部
+
+  // 计算多边形的包围盒
+  double min_x = polygon.vertices[0].x;
+  double min_y = polygon.vertices[0].y;
+  double max_x = polygon.vertices[0].x;
+  double max_y = polygon.vertices[0].y;
+
   for (const auto& vertex : polygon.vertices) {
-    center_x += vertex.x;
-    center_y += vertex.y;
+    min_x = std::min(min_x, vertex.x);
+    min_y = std::min(min_y, vertex.y);
+    max_x = std::max(max_x, vertex.x);
+    max_y = std::max(max_y, vertex.y);
   }
-  center_x /= polygon.vertices.size();
-  center_y /= polygon.vertices.size();
-  
-  // 计算最大半径
-  double max_radius = 0.0;
-  for (const auto& vertex : polygon.vertices) {
-    double dx = vertex.x - center_x;
-    double dy = vertex.y - center_y;
-    double dist = std::sqrt(dx * dx + dy * dy);
-    max_radius = std::max(max_radius, dist);
+
+  // 转换到栅格坐标
+  int grid_min_x, grid_min_y, grid_max_x, grid_max_y;
+  if (!worldToGrid(min_x, min_y, grid, grid_min_x, grid_min_y)) {
+    grid_min_x = 0;
+    grid_min_y = 0;
   }
-  
-  planning::BEVObstacles::Circle circle;
-  circle.center.x = center_x;
-  circle.center.y = center_y;
-  circle.radius = max_radius;
-  circle.confidence = polygon.confidence;
-  
-  addCircleObstacle(circle, grid);
+  if (!worldToGrid(max_x, max_y, grid, grid_max_x, grid_max_y)) {
+    grid_max_x = grid.config.width - 1;
+    grid_max_y = grid.config.height - 1;
+  }
+
+  // 限制在地图范围内
+  grid_min_x = std::max(0, grid_min_x);
+  grid_min_y = std::max(0, grid_min_y);
+  grid_max_x = std::min(grid.config.width - 1, grid_max_x);
+  grid_max_y = std::min(grid.config.height - 1, grid_max_y);
+
+  // 遍历包围盒内的所有栅格
+  for (int gy = grid_min_y; gy <= grid_max_y; ++gy) {
+    for (int gx = grid_min_x; gx <= grid_max_x; ++gx) {
+      // 计算栅格格子中心点的世界坐标
+      double cell_center_x = grid.config.origin.x + (gx + 0.5) * grid.config.resolution;
+      double cell_center_y = grid.config.origin.y + (gy + 0.5) * grid.config.resolution;
+
+      // 使用射线法判断点是否在多边形内部
+      if (isPointInPolygon(cell_center_x, cell_center_y, polygon.vertices)) {
+        setGridCell(gx, gy, config_.obstacle_cost, grid);
+      }
+    }
+  }
+}
+
+// 🔧 新增：射线法判断点是否在多边形内部
+bool GridMapBuilderPlugin::isPointInPolygon(double px, double py,
+                                           const std::vector<planning::Point2d>& vertices) const {
+  if (vertices.size() < 3) return false;
+
+  int crossings = 0;
+  size_t n = vertices.size();
+
+  for (size_t i = 0; i < n; ++i) {
+    size_t j = (i + 1) % n;
+
+    const auto& vi = vertices[i];
+    const auto& vj = vertices[j];
+
+    // 检查射线是否与边相交
+    if (((vi.y > py) != (vj.y > py)) &&
+        (px < (vj.x - vi.x) * (py - vi.y) / (vj.y - vi.y) + vi.x)) {
+      crossings++;
+    }
+  }
+
+  // 奇数次相交表示在多边形内部
+  return (crossings % 2) == 1;
 }
 
 void GridMapBuilderPlugin::inflateObstacles(planning::OccupancyGrid& grid) {
