@@ -143,10 +143,13 @@ private:
   
   // 是否启用降级机制
   bool enable_fallback_ = false;
-  
+
   // 是否已初始化
   bool initialized_ = false;
-  
+
+  // 规划器配置
+  nlohmann::json planner_configs_;
+
   // 统计信息
   struct Statistics {
     size_t total_calls = 0;

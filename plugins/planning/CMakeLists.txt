@@ -8,6 +8,7 @@ message(STATUS "--- Configuring Planning Plugins ---")
 # ========== 插件选项 ==========
 option(BUILD_STRAIGHT_LINE_PLANNER_PLUGIN "Build StraightLine planner" ON)
 option(BUILD_ASTAR_PLANNER_PLUGIN "Build A* planner" ON)
+option(BUILD_JPS_PLANNER_PLUGIN "Build JPS planner" ON)
 option(BUILD_RRT_STAR_PLANNER_PLUGIN "Build RRT* planner" OFF)
 
 # ========== 插件列表 ==========
@@ -29,6 +30,15 @@ if(BUILD_ASTAR_PLANNER_PLUGIN)
     list(APPEND PLANNING_PLUGIN_LIBS astar_planner_plugin)
 else()
     message(STATUS "  [-] A* planner plugin (disabled)")
+endif()
+
+# JPS 规划器
+if(BUILD_JPS_PLANNER_PLUGIN)
+    message(STATUS "  [+] JPS planner plugin")
+    add_subdirectory(jps_planner_plugin)
+    list(APPEND PLANNING_PLUGIN_LIBS jps_planner_plugin)
+else()
+    message(STATUS "  [-] JPS planner plugin (disabled)")
 endif()
 
 # RRT* 规划器（示例 - 未实现）

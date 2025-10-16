@@ -8,17 +8,17 @@ namespace plugins {
 namespace perception {
 
 // 插件自注册函数
-void registerESDFBuilderPlugin() {
+void registerEsdfBuilderPlugin() {
   static bool registered = false;
   if (!registered) {
-    std::cout << "[DEBUG] Registering ESDFBuilder plugin..." << std::endl;
+    std::cout << "[DEBUG] Registering EsdfBuilder plugin..." << std::endl;
     plugin::PerceptionPluginRegistry::getInstance().registerPlugin(
-        "ESDFBuilder",
+        "EsdfBuilder",
         []() -> std::unique_ptr<plugin::PerceptionPluginInterface> {
           return std::make_unique<ESDFBuilderPlugin>();
         });
     registered = true;
-    std::cout << "[DEBUG] ESDFBuilder plugin registered successfully" << std::endl;
+    std::cout << "[DEBUG] EsdfBuilder plugin registered successfully" << std::endl;
   }
 }
 
@@ -28,18 +28,18 @@ void registerESDFBuilderPlugin() {
 
 // 导出 C 风格的注册函数，供动态加载器使用
 extern "C" {
-  void registerESDFBuilderPlugin() {
-    navsim::plugins::perception::registerESDFBuilderPlugin();
+  void registerEsdfBuilderPlugin() {
+    navsim::plugins::perception::registerEsdfBuilderPlugin();
   }
 }
 
 // 静态初始化器 - 确保在程序启动时注册（用于静态链接）
 namespace {
-  struct ESDFBuilderPluginInitializer {
-    ESDFBuilderPluginInitializer() {
-      navsim::plugins::perception::registerESDFBuilderPlugin();
+  struct EsdfBuilderPluginInitializer {
+    EsdfBuilderPluginInitializer() {
+      navsim::plugins::perception::registerEsdfBuilderPlugin();
     }
   };
-  static ESDFBuilderPluginInitializer esdf_builder_plugin_initializer;
+  static EsdfBuilderPluginInitializer esdf_builder_plugin_initializer;
 }
 

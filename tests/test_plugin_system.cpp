@@ -169,7 +169,11 @@ void testPluginSystem() {
   std::cout << "  - 1 rectangle obstacle at (7, 3)" << std::endl;
   std::cout << "  - 1 dynamic obstacle at (3, 8)" << std::endl;
   std::cout << std::endl;
-  
+
+  // 启动仿真
+  std::cout << "Starting simulation..." << std::endl;
+  manager.setSimulationStarted(true);
+
   // 执行规划
   std::cout << "Running planning..." << std::endl;
   proto::PlanUpdate plan;

@@ -11,6 +11,7 @@
 #include "perception/esdf_builder/include/esdf_builder_plugin_register.hpp"
 #include "planning/straight_line/include/straight_line_planner_plugin_register.hpp"
 #include "planning/astar/include/astar_planner_plugin_register.hpp"
+#include "planning/jps_planner_plugin/include/jps_planner_plugin_register.hpp"
 
 namespace navsim {
 namespace plugins {
@@ -23,9 +24,10 @@ namespace plugins {
 void loadAllBuiltinPlugins() {
   // 调用所有插件的注册函数
   perception::registerGridMapBuilderPlugin();
-  perception::registerESDFBuilderPlugin();
+  perception::registerEsdfBuilderPlugin();
   planning::registerStraightLinePlannerPlugin();
   planning::registerAStarPlannerPlugin();
+  planning::registerJpsPlannerPlugin();
 }
 
 } // namespace plugins

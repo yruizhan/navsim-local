@@ -489,23 +489,48 @@ void AlgorithmManager::setupPluginSystem() {
   planner_plugin_manager_ = std::make_unique<plugin::PlannerPluginManager>();
 
   // 创建规划器配置
-  nlohmann::json planner_configs = {
-    {"StraightLinePlanner", {
-      {"default_velocity", 1.5},
-      {"time_step", 0.1},
-      {"planning_horizon", 5.0},
-      {"use_trapezoidal_profile", true},
-      {"max_acceleration", 1.0}
-    }},
-    {"AStarPlanner", {
-      {"time_step", 0.1},
-      {"heuristic_weight", 1.2},
-      {"step_size", 0.5},
-      {"max_iterations", 10000},
-      {"goal_tolerance", 0.5},
-      {"default_velocity", 1.5}
-    }}
-  };
+  nlohmann::json planner_configs;
+
+  // 从配置加载器获取规划器配置
+  if (plugin_loader.getConfigLoader()) {
+    planner_configs = plugin_loader.getConfigLoader()->getPlannerConfigs();
+
+    // 更新主规划器和降级规划器名称
+    std::string primary_planner = plugin_loader.getConfigLoader()->getPrimaryPlannerName();
+    std::string fallback_planner = plugin_loader.getConfigLoader()->getFallbackPlannerName();
+
+    if (!primary_planner.empty()) {
+      config_.primary_planner = primary_planner;
+    }
+    if (!fallback_planner.empty()) {
+      config_.fallback_planner = fallback_planner;
+    }
+
+    std::cout << "[AlgorithmManager] Loaded planner configs from file" << std::endl;
+    std::cout << "[AlgorithmManager] Primary planner from config: " << config_.primary_planner << std::endl;
+    std::cout << "[AlgorithmManager] Fallback planner from config: " << config_.fallback_planner << std::endl;
+  }
+
+  // 如果配置文件中没有规划器配置，使用默认配置
+  if (planner_configs.empty()) {
+    planner_configs = {
+      {"StraightLinePlanner", {
+        {"default_velocity", 1.5},
+        {"time_step", 0.1},
+        {"planning_horizon", 5.0},
+        {"use_trapezoidal_profile", true},
+        {"max_acceleration", 1.0}
+      }},
+      {"AStarPlanner", {
+        {"time_step", 0.1},
+        {"heuristic_weight", 1.2},
+        {"step_size", 0.5},
+        {"max_iterations", 10000},
+        {"goal_tolerance", 0.5},
+        {"default_velocity", 1.5}
+      }}
+    };
+  }
 
   // 加载规划器（使用配置中的规划器名称）
   planner_plugin_manager_->loadPlanners(

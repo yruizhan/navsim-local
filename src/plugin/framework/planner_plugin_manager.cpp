@@ -13,7 +13,8 @@ bool PlannerPluginManager::loadPlanners(
   primary_planner_name_ = primary_planner_name;
   fallback_planner_name_ = fallback_planner_name;
   enable_fallback_ = enable_fallback;
-  
+  planner_configs_ = planner_configs;
+
   // 获取注册表
   auto& registry = PlannerPluginRegistry::getInstance();
   
@@ -49,14 +50,17 @@ bool PlannerPluginManager::initialize() {
   }
   
   // 初始化主规划器
-  std::cout << "[PlannerPluginManager] Initializing primary planner: " 
+  std::cout << "[PlannerPluginManager] Initializing primary planner: "
             << primary_planner_name_ << std::endl;
-  
-  // 这里需要从配置中获取主规划器的参数
-  // 暂时使用空配置
+
+  // 从配置中获取主规划器的参数
   nlohmann::json primary_config;
+  if (planner_configs_.contains(primary_planner_name_)) {
+    primary_config = planner_configs_[primary_planner_name_];
+  }
+
   if (!primary_planner_->initialize(primary_config)) {
-    std::cerr << "[PlannerPluginManager] Failed to initialize primary planner: " 
+    std::cerr << "[PlannerPluginManager] Failed to initialize primary planner: "
               << primary_planner_name_ << std::endl;
     return false;
   }
@@ -66,12 +70,17 @@ bool PlannerPluginManager::initialize() {
   
   // 初始化降级规划器（如果启用）
   if (enable_fallback_ && fallback_planner_) {
-    std::cout << "[PlannerPluginManager] Initializing fallback planner: " 
+    std::cout << "[PlannerPluginManager] Initializing fallback planner: "
               << fallback_planner_name_ << std::endl;
-    
+
+    // 从配置中获取降级规划器的参数
     nlohmann::json fallback_config;
+    if (planner_configs_.contains(fallback_planner_name_)) {
+      fallback_config = planner_configs_[fallback_planner_name_];
+    }
+
     if (!fallback_planner_->initialize(fallback_config)) {
-      std::cerr << "[PlannerPluginManager] Failed to initialize fallback planner: " 
+      std::cerr << "[PlannerPluginManager] Failed to initialize fallback planner: "
                 << fallback_planner_name_ << std::endl;
       return false;
     }

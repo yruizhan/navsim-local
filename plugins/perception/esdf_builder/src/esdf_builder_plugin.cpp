@@ -11,7 +11,7 @@ namespace perception {
 
 plugin::PerceptionPluginMetadata ESDFBuilderPlugin::getMetadata() const {
   plugin::PerceptionPluginMetadata metadata;
-  metadata.name = "ESDFBuilder";
+  metadata.name = "EsdfBuilder";
   metadata.version = "1.0.0";
   metadata.description = "ESDF (Euclidean Signed Distance Field) map builder";
   metadata.author = "NavSim Team";
@@ -149,6 +149,9 @@ bool ESDFBuilderPlugin::process(const plugin::PerceptionInput& input, planning::
 
   // 5. 存储到规划上下文
   context.esdf_map = std::move(esdf_map_navsim);
+
+  // 6. 同时将 perception::ESDFMap 存储到 custom_data 中供 JPS 等规划器使用
+  context.setCustomData<navsim::perception::ESDFMap>("perception_esdf_map", esdf_map_);
 
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);

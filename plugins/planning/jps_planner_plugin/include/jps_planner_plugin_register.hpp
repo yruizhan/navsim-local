@@ -2,12 +2,12 @@
 
 namespace navsim {
 namespace plugins {
-namespace perception {
+namespace planning {
 
 // 插件注册函数声明
-void registerEsdfBuilderPlugin();
+void registerJpsPlannerPlugin();
 
-} // namespace perception
+} // namespace planning
 } // namespace plugins
 } // namespace navsim
 

@@ -26,7 +26,7 @@
         }
       },
       {
-        "name": "ESDFBuilder",
+        "name": "EsdfBuilder",
         "enabled": true,
         "priority": 90,
         "params": {
@@ -40,7 +40,7 @@
     ]
   },
   "planning": {
-    "primary_planner": "AStarPlanner",
+    "primary_planner": "JpsPlanner",
     "fallback_planner": "StraightLinePlanner",
     "enable_fallback": true,
     "planners": {
@@ -58,6 +58,21 @@
         "max_iterations": 10000,
         "goal_tolerance": 0.5,
         "default_velocity": 1.5
+      },
+      "JpsPlanner": {
+        "verbose": true,
+        "safe_dis": 0.3,
+        "max_jps_dis": 10.0,
+        "distance_weight": 1.0,
+        "yaw_weight": 1.0,
+        "traj_cut_length": 5.0,
+        "max_vel": 1.5,
+        "max_acc": 1.0,
+        "max_omega": 1.0,
+        "max_domega": 1.0,
+        "sample_time": 0.1,
+        "min_traj_num": 10,
+        "jps_truncation_time": 5.0
       }
     }
   },
