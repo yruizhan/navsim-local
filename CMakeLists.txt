@@ -193,6 +193,24 @@ target_compile_definitions(navsim_algo PRIVATE
     IX_WS_MIN_WAIT_BETWEEN_RECONNECTION_RETRIES=500
     IX_WS_MAX_WAIT_BETWEEN_RECONNECTION_RETRIES=5000)
 
+# ========== navsim_local_debug executable ==========
+add_executable(navsim_local_debug
+    apps/navsim_local_debug.cpp)
+
+target_include_directories(navsim_local_debug
+    PRIVATE
+      platform/include
+      ${CMAKE_CURRENT_BINARY_DIR}
+      third_party/nlohmann)
+
+target_link_libraries(navsim_local_debug
+    PRIVATE
+      navsim_planning
+      navsim_proto
+      ${Protobuf_LIBRARIES})
+
+target_compile_features(navsim_local_debug PRIVATE cxx_std_17)
+
 # ========== Test Executable ==========
 add_executable(test_plugin_system
     tests/test_plugin_system.cpp
