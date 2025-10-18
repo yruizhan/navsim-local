@@ -36,6 +36,7 @@
 #include "plugin/framework/perception_plugin_manager.hpp"
 #include "plugin/framework/plugin_registry.hpp"
 #include "plugin/data/planning_result.hpp"
+#include "plugin/data/perception_input.hpp"
 
 #include <iostream>
 #include <string>
@@ -203,12 +204,79 @@ int main(int argc, char** argv) {
     std::cerr << "  Failed to load scenario" << std::endl;
     return 1;
   }
-  
+
   std::cout << "  Scenario loaded successfully" << std::endl;
-  std::cout << "  Ego pose: (" << context.ego.pose.x << ", " 
+  std::cout << "  Ego pose: (" << context.ego.pose.x << ", "
             << context.ego.pose.y << ", " << context.ego.pose.yaw << ")" << std::endl;
-  std::cout << "  Goal pose: (" << context.task.goal_pose.x << ", " 
+  std::cout << "  Goal pose: (" << context.task.goal_pose.x << ", "
             << context.task.goal_pose.y << ", " << context.task.goal_pose.yaw << ")" << std::endl;
+
+  // 3.5. 运行感知插件（如果有）
+  if (!args.perception_plugins.empty()) {
+    std::cout << "[3.5/5] Running perception plugins..." << std::endl;
+
+    // 创建感知插件管理器
+    plugin::PerceptionPluginManager perception_manager;
+
+    // 创建感知插件配置
+    std::vector<plugin::PerceptionPluginConfig> perception_configs;
+    int priority = 0;
+    for (const auto& plugin_name : args.perception_plugins) {
+      plugin::PerceptionPluginConfig config;
+      config.name = plugin_name;
+      config.enabled = true;
+      config.priority = priority++;
+      config.params = {
+        {"resolution", 0.1},
+        {"map_width", 100.0},
+        {"map_height", 100.0},
+        {"max_distance", 10.0},
+        {"include_dynamic", true}
+      };
+      perception_configs.push_back(config);
+    }
+
+    if (!perception_manager.loadPlugins(perception_configs)) {
+      std::cerr << "  Failed to load perception plugins" << std::endl;
+      return 1;
+    }
+
+    if (!perception_manager.initialize()) {
+      std::cerr << "  Failed to initialize perception plugins" << std::endl;
+      return 1;
+    }
+
+    // 运行感知处理
+    plugin::PerceptionInput perception_input;
+
+    // 填充 PerceptionInput
+    perception_input.ego = context.ego;
+    perception_input.task = context.task;
+    perception_input.timestamp = context.timestamp;
+
+    // 从 context 中提取 BEV 障碍物（如果有）
+    if (context.bev_obstacles) {
+      perception_input.bev_obstacles = *context.bev_obstacles;
+    }
+
+    // 从 context 中提取动态障碍物
+    perception_input.dynamic_obstacles = context.dynamic_obstacles;
+
+    if (!perception_manager.process(perception_input, context)) {
+      std::cerr << "  Perception processing failed" << std::endl;
+      return 1;
+    }
+
+    std::cout << "  Perception processing completed" << std::endl;
+    if (context.occupancy_grid) {
+      std::cout << "    - Occupancy grid: " << context.occupancy_grid->config.width
+                << "x" << context.occupancy_grid->config.height << " cells" << std::endl;
+    }
+    if (context.esdf_map) {
+      std::cout << "    - ESDF map: " << context.esdf_map->config.width
+                << "x" << context.esdf_map->config.height << " cells" << std::endl;
+    }
+  }
   
   // 4. 运行规划
   std::cout << "[4/5] Running planner..." << std::endl;

@@ -9,8 +9,9 @@ add_library(astar_planner_plugin SHARED
     src/register.cpp)
 
 # 设置动态库输出名称和版本
+# 使用 a_star_planner_plugin 以匹配命名转换逻辑 (AStarPlanner -> a_star_planner)
 set_target_properties(astar_planner_plugin PROPERTIES
-    OUTPUT_NAME "astar_planner_plugin"
+    OUTPUT_NAME "a_star_planner_plugin"
     VERSION 1.0.0
     SOVERSION 1)
 

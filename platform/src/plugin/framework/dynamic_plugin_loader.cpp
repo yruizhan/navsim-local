@@ -71,15 +71,24 @@ void DynamicPluginLoader::addSearchPath(const std::string& path) {
 std::string DynamicPluginLoader::pluginNameToLibraryName(const std::string& plugin_name) const {
   // 将驼峰命名转换为下划线命名
   // GridMapBuilder -> grid_map_builder
+  // ESDFBuilder -> esdf_builder (特殊处理连续大写)
   std::string snake_case;
   for (size_t i = 0; i < plugin_name.size(); ++i) {
     char c = plugin_name[i];
+
+    // 检查是否需要添加下划线
     if (std::isupper(c) && i > 0) {
-      snake_case += '_';
+      // 如果前一个字符是小写，或者下一个字符是小写（连续大写的最后一个），添加下划线
+      char prev = plugin_name[i - 1];
+      bool next_is_lower = (i + 1 < plugin_name.size() && std::islower(plugin_name[i + 1]));
+
+      if (std::islower(prev) || next_is_lower) {
+        snake_case += '_';
+      }
     }
     snake_case += std::tolower(c);
   }
-  
+
   // 添加前缀和后缀
   // grid_map_builder -> libgrid_map_builder_plugin.so
   return "lib" + snake_case + "_plugin.so";
