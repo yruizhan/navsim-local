@@ -133,6 +133,7 @@ set(NAVSIM_PLANNING_SOURCES
     platform/src/core/planning_context.cpp
     platform/src/core/algorithm_manager.cpp
     platform/src/core/websocket_visualizer.cpp
+    platform/src/core/scenario_loader.cpp
     platform/src/viz/visualizer_factory.cpp
 )
 
