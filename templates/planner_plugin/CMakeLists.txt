@@ -4,6 +4,12 @@
 
 # ========== 插件库 ==========
 # 编译为动态库（共享库），支持运行时加载
+#
+# TODO: 如果您的算法有多个源文件，在这里添加
+# 示例：如果您复制了 JPS 算法，可能需要添加：
+#   algorithm/graph_search.cpp
+#   algorithm/jps_data_structures.cpp
+#   algorithm/other_helper.cpp
 add_library({{PLUGIN_NAME_SNAKE}}_plugin SHARED
     algorithm/{{PLUGIN_NAME_SNAKE}}.cpp
     adapter/{{PLUGIN_NAME_SNAKE}}_plugin.cpp
@@ -24,27 +30,52 @@ target_include_directories({{PLUGIN_NAME_SNAKE}}_plugin
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithm
         ${CMAKE_CURRENT_SOURCE_DIR}/adapter
         ${CMAKE_SOURCE_DIR}/platform/include  # Platform headers (required)
-        # ${CMAKE_SOURCE_DIR}/plugins/perception/esdf_builder/include  # Uncomment if you need ESDF map
-        # ${CMAKE_SOURCE_DIR}/plugins/perception/grid_map_builder/include  # Uncomment if you need occupancy grid
 )
 
+# TODO: 如果您的算法需要感知数据，取消注释相应的行
+# 示例：如果需要 ESDF 地图（如 JPS 算法）
+# target_include_directories({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE
+#     ${CMAKE_SOURCE_DIR}/plugins/perception/esdf_builder/include)
+
+# 示例：如果需要栅格地图（如 A* 算法）
+# target_include_directories({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE
+#     ${CMAKE_SOURCE_DIR}/plugins/perception/grid_map_builder/include)
+
 # ========== 依赖项 ==========
-# Uncomment if you need additional dependencies:
-# find_package(Boost REQUIRED)              # For advanced data structures (heap, graph, etc.)
-# find_package(OpenCV REQUIRED)             # For image processing
-# find_package(PCL REQUIRED)                # For point cloud processing
+# TODO: 如果您的算法需要额外的库，取消注释相应的行
+
+# 示例：如果需要 Boost（如 JPS 算法使用优先队列）
+# find_package(Boost REQUIRED)
+
+# 示例：如果需要 OpenCV（图像处理）
+# find_package(OpenCV REQUIRED)
+
+# 示例：如果需要 PCL（点云处理）
+# find_package(PCL REQUIRED)
 
 target_link_libraries({{PLUGIN_NAME_SNAKE}}_plugin
     PUBLIC
         navsim_plugin_framework
     PRIVATE
         Eigen3::Eigen
-        # Boost::boost                        # Uncomment if using Boost
-        # ${OpenCV_LIBS}                      # Uncomment if using OpenCV
-        # ${PCL_LIBRARIES}                    # Uncomment if using PCL
-        # esdf_builder_plugin                 # Uncomment if you need ESDF map
-        # grid_map_builder_plugin             # Uncomment if you need occupancy grid
 )
+
+# TODO: 如果您的算法需要额外的库，取消注释相应的行
+
+# 示例：如果需要 Boost
+# target_link_libraries({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE Boost::boost)
+
+# 示例：如果需要 OpenCV
+# target_link_libraries({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE ${OpenCV_LIBS})
+
+# 示例：如果需要 PCL
+# target_link_libraries({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE ${PCL_LIBRARIES})
+
+# 示例：如果需要 ESDF 地图（如 JPS 算法）
+# target_link_libraries({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE esdf_builder_plugin)
+
+# 示例：如果需要栅格地图（如 A* 算法）
+# target_link_libraries({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE grid_map_builder_plugin)
 
 # ========== 编译选项 ==========
 target_compile_features({{PLUGIN_NAME_SNAKE}}_plugin PUBLIC cxx_std_17)

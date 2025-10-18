@@ -96,35 +96,160 @@ ctest -R {{PLUGIN_NAME_SNAKE}}
 
 ## 📝 开发指南
 
-### 修改算法
+### 如何集成已有算法
 
-1. 编辑 `algorithm/{{PLUGIN_NAME_SNAKE}}.cpp` 中的 `plan()` 方法
-2. 添加您的算法逻辑
-3. 重新编译并测试
+如果您已经有算法代码（如从其他项目复制），按以下步骤集成：
 
-### 添加配置参数
+#### 1. 复制算法文件到 `algorithm/` 目录
 
-1. 在 `algorithm/{{PLUGIN_NAME_SNAKE}}.hpp` 的 `Config` 结构体中添加参数
-2. 在 `Config::fromJson()` 中添加 JSON 解析逻辑
-3. 在 `adapter/{{PLUGIN_NAME_SNAKE}}_plugin.cpp` 的 `initialize()` 中打印新参数
+```bash
+# 示例：复制 JPS 算法文件
+cp /path/to/old_plugin/jps_planner.{hpp,cpp} algorithm/
+cp /path/to/old_plugin/graph_search.{hpp,cpp} algorithm/
+cp /path/to/old_plugin/jps_data_structures.hpp algorithm/
+```
 
-### 添加依赖
+#### 2. 更新适配层头文件 (`adapter/{{PLUGIN_NAME_SNAKE}}_plugin.hpp`)
 
-如果需要额外的依赖（如栅格地图、ESDF 等）：
+```cpp
+// 2.1 包含您的算法头文件
+#include "../algorithm/your_algorithm.hpp"
 
-1. 在 `adapter/{{PLUGIN_NAME_SNAKE}}_plugin.hpp` 的 `getMetadata()` 中设置：
-   ```cpp
-   metadata.requires_occupancy_grid = true;
-   metadata.requires_esdf_map = true;
-   ```
+// 2.2 添加算法实例作为成员变量
+private:
+  std::unique_ptr<YourAlgorithm> algorithm_;
+  YourAlgorithmConfig config_;
 
-2. 在 `plan()` 方法中检查依赖：
-   ```cpp
-   if (!context.occupancy_grid) {
-     result.failure_reason = "No occupancy grid available";
-     return false;
-   }
-   ```
+  // 如果需要感知数据
+  std::shared_ptr<navsim::perception::ESDFMap> esdf_map_;
+```
+
+#### 3. 更新适配层实现 (`adapter/{{PLUGIN_NAME_SNAKE}}_plugin.cpp`)
+
+```cpp
+// 3.1 在 loadConfig() 中解析配置
+bool {{PLUGIN_NAME}}Plugin::loadConfig(const nlohmann::json& config) {
+  config_.your_param = config.value("your_param", default_value);
+  // ...
+}
+
+// 3.2 在 plan() 中调用算法
+bool {{PLUGIN_NAME}}Plugin::plan(...) {
+  // 获取感知数据（如果需要）
+  esdf_map_ = context.getCustomData<navsim::perception::ESDFMap>("perception_esdf_map");
+
+  // 调用算法
+  bool success = algorithm_->plan(start, goal);
+
+  // 转换输出
+  convertAlgorithmOutputToResult(...);
+}
+```
+
+#### 4. 更新 CMakeLists.txt
+
+```cmake
+# 4.1 添加算法源文件
+add_library({{PLUGIN_NAME_SNAKE}}_plugin SHARED
+    algorithm/your_algorithm.cpp
+    algorithm/helper_module.cpp  # 如果有多个文件
+    adapter/{{PLUGIN_NAME_SNAKE}}_plugin.cpp
+    adapter/register.cpp)
+
+# 4.2 添加依赖（如果需要）
+find_package(Boost REQUIRED)  # 如果算法使用 Boost
+
+target_include_directories({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/perception/esdf_builder/include)  # 如果需要 ESDF
+
+target_link_libraries({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE
+    Boost::boost
+    esdf_builder_plugin)
+```
+
+#### 5. 编译和测试
+
+```bash
+cd build
+cmake ..
+make {{PLUGIN_NAME_SNAKE}}_plugin -j4
+./navsim_local_debug --planner {{PLUGIN_NAME}} --scenario scenarios/simple_corridor.json
+```
+
+### 从零开发新算法
+
+如果您要从零开发新算法：
+
+#### 1. 编辑算法层
+
+编辑 `algorithm/{{PLUGIN_NAME_SNAKE}}.cpp` 中的 `plan()` 方法：
+
+```cpp
+bool {{PLUGIN_NAME}}::plan(const Eigen::Vector3d& start,
+                           const Eigen::Vector3d& goal) {
+  // TODO: 实现您的算法
+  // 1. 初始化数据结构
+  // 2. 执行搜索/优化
+  // 3. 生成路径
+  // 4. 返回结果
+}
+```
+
+#### 2. 添加配置参数
+
+在 `algorithm/{{PLUGIN_NAME_SNAKE}}.hpp` 的 `Config` 结构体中添加参数：
+
+```cpp
+struct Config {
+  double max_velocity = 2.0;
+  double your_new_param = 1.0;  // 新参数
+};
+```
+
+在 `adapter/{{PLUGIN_NAME_SNAKE}}_plugin.cpp` 的 `loadConfig()` 中解析：
+
+```cpp
+if (config.contains("your_new_param")) {
+  config_.your_new_param = config["your_new_param"].get<double>();
+}
+```
+
+### 添加感知数据依赖
+
+如果您的算法需要感知数据（如栅格地图、ESDF 等）：
+
+#### 1. 在 `getMetadata()` 中声明依赖
+
+```cpp
+navsim::plugin::PlannerPluginMetadata {{PLUGIN_NAME}}Plugin::getMetadata() const {
+  metadata.required_perception_data = {"esdf_map"};  // 或 {"occupancy_grid"}
+  return metadata;
+}
+```
+
+#### 2. 在 `plan()` 中获取感知数据
+
+```cpp
+// 获取 ESDF 地图
+esdf_map_ = context.getCustomData<navsim::perception::ESDFMap>("perception_esdf_map");
+if (!esdf_map_) {
+  result.failure_reason = "ESDF map not available";
+  return false;
+}
+
+// 使用地图
+algorithm_->setMap(esdf_map_);
+```
+
+#### 3. 在 CMakeLists.txt 中添加依赖
+
+```cmake
+target_include_directories({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/perception/esdf_builder/include)
+
+target_link_libraries({{PLUGIN_NAME_SNAKE}}_plugin PRIVATE
+    esdf_builder_plugin)
+```
 
 ## 📚 相关文档
 

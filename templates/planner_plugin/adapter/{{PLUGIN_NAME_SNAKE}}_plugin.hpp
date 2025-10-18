@@ -79,26 +79,78 @@ public:
    * @brief 重置插件状态
    */
   void reset() override;
-  
+
+  /**
+   * @brief 获取统计信息
+   */
+  nlohmann::json getStatistics() const override;
+
 private:
-  // 算法核心实例
+  // ========== 算法实例 ==========
+  // TODO: 将下面的示例替换为您的算法类
+  // 示例：如果您的算法类是 JPS::JPSPlanner，则：
+  //   std::unique_ptr<JPS::JPSPlanner> planner_;
   std::unique_ptr<algorithm::{{PLUGIN_NAME}}> planner_;
-  
-  // 配置
+
+  // ========== 算法配置 ==========
+  // TODO: 将下面的示例替换为您的算法配置结构
+  // 示例：如果您的算法配置是 JPS::JPSConfig，则：
+  //   JPS::JPSConfig config_;
   algorithm::{{PLUGIN_NAME}}::Config config_;
-  
-  // 是否已初始化
+
+  // ========== 感知数据（如果需要）==========
+  // TODO: 如果您的算法需要感知数据，在这里添加
+  // 示例：
+  //   std::shared_ptr<navsim::perception::ESDFMap> esdf_map_;
+  //   std::shared_ptr<navsim::perception::OccupancyGrid> occupancy_grid_;
+
+  // ========== 状态标志 ==========
   bool initialized_ = false;
-  
+  bool verbose_ = false;
+
+  // ========== 统计信息（可选）==========
+  // TODO: 如果需要统计信息，取消注释以下代码
+  // mutable int total_plans_ = 0;
+  // mutable int successful_plans_ = 0;
+  // mutable int failed_plans_ = 0;
+  // mutable double total_planning_time_ms_ = 0.0;
+
+  // ========== 辅助方法 ==========
+
+  /**
+   * @brief 加载配置
+   */
+  bool loadConfig(const nlohmann::json& config);
+
+  /**
+   * @brief 验证配置
+   */
+  bool validateConfig() const;
+
   /**
    * @brief 转换平台数据 → 算法数据
+   *
+   * TODO: 根据您的算法需求修改此方法
+   * 示例：如果需要转换起点和终点：
+   *   bool convertContextToAlgorithmInput(
+   *       const navsim::planning::PlanningContext& context,
+   *       Eigen::Vector3d& start,
+   *       Eigen::Vector3d& goal) const;
    */
   Eigen::Vector3d convertPose(const navsim::planning::Pose2d& pose) const;
 
   /**
-   * @brief 从 JSON 配置解析算法配置
+   * @brief 转换算法输出 → 平台数据
+   *
+   * TODO: 根据您的算法输出修改此方法
+   * 示例：如果算法返回路径点列表：
+   *   bool convertAlgorithmOutputToResult(
+   *       const std::vector<YourWaypoint>& path,
+   *       navsim::plugin::PlanningResult& result) const;
    */
-  algorithm::{{PLUGIN_NAME}}::Config parseConfig(const nlohmann::json& json) const;
+  bool convertAlgorithmOutputToResult(
+      const algorithm::{{PLUGIN_NAME}}::Result& algo_result,
+      navsim::plugin::PlanningResult& result) const;
 };
 
 } // namespace adapter
