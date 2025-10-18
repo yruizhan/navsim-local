@@ -133,13 +133,13 @@ std::string DynamicPluginLoader::resolvePluginPath(const std::string& plugin_spe
   // 定义查找路径（按优先级排序）
   std::vector<std::string> search_order;
 
-  // 1. plugins/planning/lib{name}.so
-  search_order.push_back("plugins/planning/" + lib_name);
-  search_order.push_back("build/plugins/planning/" + lib_name);
+  // 1. plugins/planning/ - 递归搜索
+  search_order.push_back("plugins/planning");
+  search_order.push_back("build/plugins/planning");
 
-  // 2. plugins/perception/lib{name}.so
-  search_order.push_back("plugins/perception/" + lib_name);
-  search_order.push_back("build/plugins/perception/" + lib_name);
+  // 2. plugins/perception/ - 递归搜索
+  search_order.push_back("plugins/perception");
+  search_order.push_back("build/plugins/perception");
 
   // 3. ~/.navsim/plugins/lib{name}.so
   const char* home = getenv("HOME");
@@ -173,11 +173,26 @@ std::string DynamicPluginLoader::resolvePluginPath(const std::string& plugin_spe
   }
 
   // 按顺序查找
-  for (const auto& path : search_order) {
-    if (fs::exists(path)) {
+  for (const auto& search_path : search_order) {
+    // 如果是目录，递归搜索
+    if (fs::exists(search_path) && fs::is_directory(search_path)) {
+      try {
+        for (const auto& entry : fs::recursive_directory_iterator(search_path)) {
+          if (entry.is_regular_file() && entry.path().filename() == lib_name) {
+            std::cout << "[DynamicPluginLoader] Found plugin '" << plugin_spec
+                      << "' at: " << entry.path().string() << std::endl;
+            return fs::absolute(entry.path()).string();
+          }
+        }
+      } catch (const fs::filesystem_error& e) {
+        // 忽略无法访问的目录
+        continue;
+      }
+    } else if (fs::exists(search_path)) {
+      // 如果是文件，直接检查
       std::cout << "[DynamicPluginLoader] Found plugin '" << plugin_spec
-                << "' at: " << path << std::endl;
-      return fs::absolute(path).string();
+                << "' at: " << search_path << std::endl;
+      return fs::absolute(search_path).string();
     }
   }
 

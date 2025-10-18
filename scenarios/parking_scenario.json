@@ -1,0 +1,73 @@
+{
+  "scenario_name": "parking_scenario",
+  "description": "Parking scenario with tight space",
+  "timestamp": 0.0,
+  "planning_horizon": 10.0,
+  "ego": {
+    "pose": {
+      "x": 0.0,
+      "y": 0.0,
+      "yaw": 0.0
+    },
+    "twist": {
+      "vx": 0.0,
+      "vy": 0.0,
+      "omega": 0.0
+    },
+    "chassis_model": "ackermann",
+    "kinematics": {
+      "wheelbase": 2.8,
+      "track_width": 2.0,
+      "body_length": 4.8,
+      "body_width": 2.0,
+      "wheel_radius": 0.3
+    },
+    "limits": {
+      "max_velocity": 5.0,
+      "max_acceleration": 2.0,
+      "max_deceleration": 4.0,
+      "max_steer_angle": 0.6,
+      "max_curvature": 0.3
+    }
+  },
+  "task": {
+    "goal_pose": {
+      "x": 10.0,
+      "y": 5.0,
+      "yaw": 1.5708
+    },
+    "type": "PARKING",
+    "tolerance": {
+      "position": 0.2,
+      "yaw": 0.1
+    }
+  },
+  "obstacles": [
+    {
+      "type": "rectangle",
+      "pose": {"x": 10.0, "y": 2.5, "yaw": 1.5708},
+      "width": 2.0,
+      "height": 5.0,
+      "confidence": 1.0,
+      "comment": "Left wall"
+    },
+    {
+      "type": "rectangle",
+      "pose": {"x": 10.0, "y": 7.5, "yaw": 1.5708},
+      "width": 2.0,
+      "height": 5.0,
+      "confidence": 1.0,
+      "comment": "Right wall"
+    },
+    {
+      "type": "rectangle",
+      "pose": {"x": 7.5, "y": 5.0, "yaw": 0.0},
+      "width": 2.0,
+      "height": 5.0,
+      "confidence": 1.0,
+      "comment": "Back wall"
+    }
+  ],
+  "dynamic_obstacles": []
+}
+

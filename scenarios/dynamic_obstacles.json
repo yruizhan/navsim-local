@@ -1,0 +1,111 @@
+{
+  "scenario_name": "dynamic_obstacles",
+  "description": "Scenario with moving vehicles",
+  "timestamp": 0.0,
+  "planning_horizon": 5.0,
+  "ego": {
+    "pose": {
+      "x": 0.0,
+      "y": 0.0,
+      "yaw": 0.0
+    },
+    "twist": {
+      "vx": 5.0,
+      "vy": 0.0,
+      "omega": 0.0
+    },
+    "chassis_model": "differential",
+    "kinematics": {
+      "wheelbase": 2.8,
+      "track_width": 2.0,
+      "body_length": 4.8,
+      "body_width": 2.0,
+      "wheel_radius": 0.3
+    },
+    "limits": {
+      "max_velocity": 15.0,
+      "max_acceleration": 3.0,
+      "max_deceleration": 8.0,
+      "max_steer_angle": 0.6,
+      "max_curvature": 0.2
+    }
+  },
+  "task": {
+    "goal_pose": {
+      "x": 30.0,
+      "y": 0.0,
+      "yaw": 0.0
+    },
+    "type": "GOTO_GOAL",
+    "tolerance": {
+      "position": 0.5,
+      "yaw": 0.2
+    }
+  },
+  "obstacles": [],
+  "dynamic_obstacles": [
+    {
+      "id": 1,
+      "type": "vehicle",
+      "shape_type": "rectangle",
+      "current_pose": {
+        "x": 15.0,
+        "y": 0.0,
+        "yaw": 0.0
+      },
+      "current_twist": {
+        "vx": 3.0,
+        "vy": 0.0,
+        "omega": 0.0
+      },
+      "length": 4.5,
+      "width": 2.0,
+      "height": 1.8,
+      "predicted_trajectories": [
+        {
+          "probability": 1.0,
+          "poses": [
+            {"x": 15.0, "y": 0.0, "yaw": 0.0},
+            {"x": 16.5, "y": 0.0, "yaw": 0.0},
+            {"x": 18.0, "y": 0.0, "yaw": 0.0},
+            {"x": 19.5, "y": 0.0, "yaw": 0.0},
+            {"x": 21.0, "y": 0.0, "yaw": 0.0}
+          ],
+          "timestamps": [0.0, 0.5, 1.0, 1.5, 2.0]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "vehicle",
+      "shape_type": "rectangle",
+      "current_pose": {
+        "x": 25.0,
+        "y": 3.0,
+        "yaw": 3.14159
+      },
+      "current_twist": {
+        "vx": 4.0,
+        "vy": 0.0,
+        "omega": 0.0
+      },
+      "length": 4.5,
+      "width": 2.0,
+      "height": 1.8,
+      "predicted_trajectories": [
+        {
+          "probability": 1.0,
+          "poses": [
+            {"x": 25.0, "y": 3.0, "yaw": 3.14159},
+            {"x": 23.0, "y": 3.0, "yaw": 3.14159},
+            {"x": 21.0, "y": 3.0, "yaw": 3.14159},
+            {"x": 19.0, "y": 3.0, "yaw": 3.14159},
+            {"x": 17.0, "y": 3.0, "yaw": 3.14159}
+          ],
+          "timestamps": [0.0, 0.5, 1.0, 1.5, 2.0]
+        }
+      ]
+    }
+  ]
+}
+
