@@ -10,7 +10,7 @@
 #include "perception/grid_map_builder/include/grid_map_builder_plugin_register.hpp"
 #include "perception/esdf_builder/include/esdf_builder_plugin_register.hpp"
 #include "planning/straight_line_planner/adapter/straight_line_plugin.hpp"
-#include "planning/jps_planner_plugin/include/jps_planner_plugin_register.hpp"
+#include "planning/jps_planner/adapter/jps_planner_plugin.hpp"
 
 namespace navsim {
 namespace plugins {
@@ -25,7 +25,7 @@ void loadAllBuiltinPlugins() {
   perception::registerGridMapBuilderPlugin();
   perception::registerEsdfBuilderPlugin();
   straight_line::adapter::registerStraightLinePlugin();
-  planning::registerJpsPlannerPlugin();
+  jps_planner::adapter::registerJpsPlannerPlugin();
 }
 
 } // namespace plugins

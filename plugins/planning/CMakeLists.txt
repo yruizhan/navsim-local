@@ -24,7 +24,7 @@ endif()
 # JPS 规划器
 if(BUILD_JPS_PLANNER_PLUGIN)
     message(STATUS "  [+] JPS planner plugin")
-    add_subdirectory(jps_planner_plugin)
+    add_subdirectory(jps_planner)
     list(APPEND PLANNING_PLUGIN_LIBS jps_planner_plugin)
 else()
     message(STATUS "  [-] JPS planner plugin (disabled)")

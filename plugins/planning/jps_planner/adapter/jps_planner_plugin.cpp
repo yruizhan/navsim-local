@@ -7,14 +7,16 @@
 #include <iostream>
 #include <cmath>
 
-using namespace navsim::plugins::planning;
+namespace jps_planner {
+namespace adapter {
+
 using json = nlohmann::json;
 
 // ============================================================================
 // Plugin Metadata
 // ============================================================================
 
-navsim::plugin::PlannerPluginMetadata JPSPlannerPlugin::getMetadata() const {
+navsim::plugin::PlannerPluginMetadata JpsPlannerPlugin::getMetadata() const {
   navsim::plugin::PlannerPluginMetadata metadata;
   metadata.name = "JpsPlanner";
   metadata.version = "1.0.0";
@@ -30,7 +32,7 @@ navsim::plugin::PlannerPluginMetadata JPSPlannerPlugin::getMetadata() const {
 // Plugin Lifecycle
 // ============================================================================
 
-bool JPSPlannerPlugin::initialize(const json& config) {
+bool JpsPlannerPlugin::initialize(const json& config) {
   if (initialized_) {
     std::cerr << "[JPSPlannerPlugin] Already initialized!" << std::endl;
     return false;
@@ -64,7 +66,7 @@ bool JPSPlannerPlugin::initialize(const json& config) {
   return true;
 }
 
-void JPSPlannerPlugin::reset() {
+void JpsPlannerPlugin::reset() {
   if (verbose_) {
     std::cout << "[JPSPlannerPlugin] Reset" << std::endl;
   }
@@ -75,7 +77,7 @@ void JPSPlannerPlugin::reset() {
   total_planning_time_ms_ = 0.0;
 }
 
-nlohmann::json JPSPlannerPlugin::getStatistics() const {
+nlohmann::json JpsPlannerPlugin::getStatistics() const {
   json stats;
   stats["total_plans"] = total_plans_;
   stats["successful_plans"] = successful_plans_;
@@ -89,7 +91,7 @@ nlohmann::json JPSPlannerPlugin::getStatistics() const {
 // Planning
 // ============================================================================
 
-std::pair<bool, std::string> JPSPlannerPlugin::isAvailable(
+std::pair<bool, std::string> JpsPlannerPlugin::isAvailable(
     const navsim::planning::PlanningContext& context) const {
   if (!initialized_) {
     return {false, "Plugin not initialized"};
@@ -103,9 +105,9 @@ std::pair<bool, std::string> JPSPlannerPlugin::isAvailable(
   return {true, ""};
 }
 
-bool JPSPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
+bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
                              std::chrono::milliseconds deadline,
-                             plugin::PlanningResult& result) {
+                             navsim::plugin::PlanningResult& result) {
   (void)deadline;  // Unused parameter
   auto start_time = std::chrono::steady_clock::now();
   total_plans_++;
@@ -212,7 +214,7 @@ bool JPSPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
 // Configuration
 // ============================================================================
 
-bool JPSPlannerPlugin::loadConfig(const json& config) {
+bool JpsPlannerPlugin::loadConfig(const json& config) {
   try {
     // Load JPS configuration (config is the planner-specific config from default.json)
     jps_config_.safe_dis = config.value("safe_dis", 0.3);
@@ -238,7 +240,7 @@ bool JPSPlannerPlugin::loadConfig(const json& config) {
   }
 }
 
-bool JPSPlannerPlugin::validateConfig() const {
+bool JpsPlannerPlugin::validateConfig() const {
   if (jps_config_.safe_dis <= 0.0) {
     std::cerr << "[JPSPlannerPlugin] Invalid safe_dis: " << jps_config_.safe_dis << std::endl;
     return false;
@@ -266,7 +268,7 @@ bool JPSPlannerPlugin::validateConfig() const {
 // Data Conversion
 // ============================================================================
 
-bool JPSPlannerPlugin::convertContextToJPSInput(const navsim::planning::PlanningContext& context,
+bool JpsPlannerPlugin::convertContextToJPSInput(const navsim::planning::PlanningContext& context,
                                                  Eigen::Vector3d& start,
                                                  Eigen::Vector3d& goal) const {
   // Extract start from ego vehicle pose
@@ -282,8 +284,8 @@ bool JPSPlannerPlugin::convertContextToJPSInput(const navsim::planning::Planning
   return true;
 }
 
-bool JPSPlannerPlugin::convertJPSOutputToResult(const JPS::JPSPlanner& jps_planner,
-                                                 plugin::PlanningResult& result) const {
+bool JpsPlannerPlugin::convertJPSOutputToResult(const JPS::JPSPlanner& jps_planner,
+                                                 navsim::plugin::PlanningResult& result) const {
   // Get optimized path
   const auto& path = jps_planner.getOptimizedPath();
 
@@ -300,7 +302,7 @@ bool JPSPlannerPlugin::convertJPSOutputToResult(const JPS::JPSPlanner& jps_plann
   double cumulative_length = 0.0;
 
   for (size_t i = 0; i < path.size(); ++i) {
-    plugin::TrajectoryPoint traj_pt;
+    navsim::plugin::TrajectoryPoint traj_pt;
 
     // Set pose
     traj_pt.pose.x = path[i].x();
@@ -353,6 +355,9 @@ bool JPSPlannerPlugin::convertJPSOutputToResult(const JPS::JPSPlanner& jps_plann
 
   return true;
 }
+
+}  // namespace adapter
+}  // namespace jps_planner
 
 
 
