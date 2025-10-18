@@ -11,6 +11,7 @@
 #include "perception/esdf_builder/include/esdf_builder_plugin_register.hpp"
 #include "planning/straight_line_planner/adapter/straight_line_plugin.hpp"
 #include "planning/jps_planner/adapter/jps_planner_plugin.hpp"
+#include "planning/astar_planner/adapter/astar_planner_plugin.hpp"
 
 namespace navsim {
 namespace plugins {
@@ -26,6 +27,7 @@ void loadAllBuiltinPlugins() {
   perception::registerEsdfBuilderPlugin();
   straight_line::adapter::registerStraightLinePlugin();
   jps_planner::adapter::registerJpsPlannerPlugin();
+  astar_planner::adapter::registerAstarPlannerPlugin();
 }
 
 } // namespace plugins

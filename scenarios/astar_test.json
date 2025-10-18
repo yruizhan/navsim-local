@@ -1,6 +1,6 @@
 {
-  "scenario_name": "simple_corridor",
-  "description": "Simple corridor with static obstacles",
+  "scenario_name": "astar_test",
+  "description": "Test A* planner with obstacles requiring path planning",
   "timestamp": 0.0,
   "planning_horizon": 5.0,
   "ego": {
@@ -33,7 +33,7 @@
   "task": {
     "goal_pose": {
       "x": 20.0,
-      "y": 0.0,
+      "y": 10.0,
       "yaw": 0.0
     },
     "type": "GOTO_GOAL",
@@ -44,37 +44,26 @@
   },
   "obstacles": [
     {
-      "type": "circle",
-      "center": {"x": 5.0, "y": 2.0},
-      "radius": 1.0,
-      "confidence": 1.0
-    },
-    {
-      "type": "circle",
-      "center": {"x": 10.0, "y": -2.0},
-      "radius": 1.0,
+      "type": "rectangle",
+      "pose": {"x": 5.0, "y": 2.0, "yaw": 0.0},
+      "width": 10.0,
+      "height": 2.0,
       "confidence": 1.0
     },
     {
       "type": "rectangle",
-      "pose": {"x": 15.0, "y": 1.5, "yaw": 0.0},
-      "width": 2.0,
-      "height": 1.0,
+      "pose": {"x": 15.0, "y": 8.0, "yaw": 0.0},
+      "width": 10.0,
+      "height": 2.0,
+      "confidence": 1.0
+    },
+    {
+      "type": "circle",
+      "center": {"x": 10.0, "y": 5.0},
+      "radius": 1.5,
       "confidence": 1.0
     }
   ],
-  "dynamic_obstacles": [],
-  "perception_plugins": [
-    {
-      "name": "GridMapBuilder",
-      "config": {
-        "resolution": 0.2,
-        "map_width": 50.0,
-        "map_height": 50.0,
-        "obstacle_cost": 100,
-        "inflation_radius": 0.5
-      }
-    }
-  ]
+  "dynamic_obstacles": []
 }
 
