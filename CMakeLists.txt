@@ -6,11 +6,11 @@ find_package(Protobuf REQUIRED)
 set(Protobuf_USE_STATIC_LIBS OFF)
 
 set(PROTO_FILES
-    proto/world_tick.proto
-    proto/plan_update.proto
-    proto/ego_cmd.proto)
+    platform/proto/world_tick.proto
+    platform/proto/plan_update.proto
+    platform/proto/ego_cmd.proto)
 
-set(PROTOBUF_IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto)
+set(PROTOBUF_IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/platform/proto)
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 
 add_library(navsim_proto STATIC ${PROTO_SRCS} ${PROTO_HDRS})
@@ -47,20 +47,20 @@ endif()
 # ========== Plugin Framework Library (without concrete plugins) ==========
 add_library(navsim_plugin_framework STATIC
     # Plugin framework
-    src/plugin/framework/perception_plugin_manager.cpp
-    src/plugin/framework/planner_plugin_manager.cpp
-    src/plugin/framework/config_loader.cpp
-    src/plugin/framework/plugin_init.cpp
-    src/plugin/framework/dynamic_plugin_loader.cpp
+    platform/src/plugin/framework/perception_plugin_manager.cpp
+    platform/src/plugin/framework/planner_plugin_manager.cpp
+    platform/src/plugin/framework/config_loader.cpp
+    platform/src/plugin/framework/plugin_init.cpp
+    platform/src/plugin/framework/dynamic_plugin_loader.cpp
     # Preprocessing
-    src/plugin/preprocessing/bev_extractor.cpp
-    src/plugin/preprocessing/dynamic_predictor.cpp
-    src/plugin/preprocessing/basic_converter.cpp
-    src/plugin/preprocessing/preprocessing_pipeline.cpp)
+    platform/src/plugin/preprocessing/bev_extractor.cpp
+    platform/src/plugin/preprocessing/dynamic_predictor.cpp
+    platform/src/plugin/preprocessing/basic_converter.cpp
+    platform/src/plugin/preprocessing/preprocessing_pipeline.cpp)
 
 target_include_directories(navsim_plugin_framework
     PUBLIC
-      include
+      platform/include
       ${CMAKE_CURRENT_BINARY_DIR}
       third_party/nlohmann)
 
@@ -130,16 +130,16 @@ endif()
 
 # ========== Core Library ==========
 set(NAVSIM_PLANNING_SOURCES
-    src/core/planning_context.cpp
-    src/core/algorithm_manager.cpp
-    src/core/websocket_visualizer.cpp
-    src/viz/visualizer_factory.cpp
+    platform/src/core/planning_context.cpp
+    platform/src/core/algorithm_manager.cpp
+    platform/src/core/websocket_visualizer.cpp
+    platform/src/viz/visualizer_factory.cpp
 )
 
 # 添加可视化源文件（如果启用）
 if(ENABLE_VISUALIZATION)
     list(APPEND NAVSIM_PLANNING_SOURCES
-        src/viz/imgui_visualizer.cpp
+        platform/src/viz/imgui_visualizer.cpp
     )
 endif()
 
@@ -147,7 +147,7 @@ add_library(navsim_planning STATIC ${NAVSIM_PLANNING_SOURCES})
 
 target_include_directories(navsim_planning
     PUBLIC
-      include
+      platform/include
       ${CMAKE_CURRENT_BINARY_DIR}
       third_party/nlohmann)
 
@@ -169,12 +169,12 @@ target_compile_features(navsim_planning PUBLIC cxx_std_17)
 
 # ========== navsim_algo executable ==========
 add_executable(navsim_algo
-    src/core/main.cpp
-    src/core/bridge.cpp)
+    apps/navsim_algo.cpp
+    platform/src/core/bridge.cpp)
 
 target_include_directories(navsim_algo
     PRIVATE
-      include
+      platform/include
       ${CMAKE_CURRENT_BINARY_DIR}
       third_party/nlohmann)  # nlohmann/json
 
@@ -195,11 +195,11 @@ target_compile_definitions(navsim_algo PRIVATE
 # ========== Test Executable ==========
 add_executable(test_plugin_system
     tests/test_plugin_system.cpp
-    src/core/bridge.cpp)  # 添加 bridge.cpp 以解决链接问题
+    platform/src/core/bridge.cpp)  # 添加 bridge.cpp 以解决链接问题
 
 target_include_directories(test_plugin_system
     PRIVATE
-      include
+      platform/include
       ${CMAKE_CURRENT_BINARY_DIR}
       third_party/nlohmann)
 
