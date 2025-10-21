@@ -231,11 +231,14 @@ struct FlatTrajData {
 // ============================================================================
 
 struct OptimizerConfig {
-  // Kinematic constraints
-  double max_vel = 5.0;
-  double min_vel = -5.0;
-  double max_acc = 5.0;
-  double max_omega = 1.0;
+  // 🔧 注意：运动学约束（max_vel, max_acc, max_omega）已移至从场景配置动态读取
+  // 这些参数现在从 PlanningContext.ego.limits 中获取，不再从配置文件读取
+
+  // Kinematic constraints (deprecated - now read from scenario)
+  double max_vel = 5.0;           // ⚠️ 已废弃：从 ego.limits.max_velocity 读取
+  double min_vel = -5.0;          // ⚠️ 已废弃：从 ego.limits.max_velocity 计算
+  double max_acc = 5.0;           // ⚠️ 已废弃：从 ego.limits.max_acceleration 读取
+  double max_omega = 1.0;         // ⚠️ 已废弃：从 chassisConfig.limits.omega_max 读取
   double max_domega = 50.0;
   double max_centripetal_acc = 10000.0;
   bool if_directly_constrain_v_omega = false;

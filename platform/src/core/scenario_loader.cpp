@@ -550,10 +550,19 @@ nlohmann::json ScenarioLoader::convertOnlineToInternal(const nlohmann::json& onl
 
     // 运动学参数
     nlohmann::json kinematics;
+
+    // 🔧 优先从 chassisConfig 顶层读取 wheelbase 和 track_width
+    double wheelbase = chassis.value("wheelbase", 2.8);
+    double track_width = chassis.value("track_width", 2.0);
+
     if (chassis.contains("geometry")) {
       const auto& geom = chassis["geometry"];
-      kinematics["wheelbase"] = geom.value("wheelbase", 2.8);
-      kinematics["track_width"] = geom.value("track_width", 2.0);
+      // 如果 geometry 中也有这些参数，则覆盖顶层的值
+      wheelbase = geom.value("wheelbase", wheelbase);
+      track_width = geom.value("track_width", track_width);
+
+      kinematics["wheelbase"] = wheelbase;
+      kinematics["track_width"] = track_width;
       kinematics["body_length"] = geom.value("body_length", 4.8);
       kinematics["body_width"] = geom.value("body_width", 2.0);
       kinematics["wheel_radius"] = geom.value("wheel_radius", 0.3);
@@ -564,7 +573,7 @@ nlohmann::json ScenarioLoader::convertOnlineToInternal(const nlohmann::json& onl
     } else {
       // 默认值
       kinematics = {
-        {"wheelbase", 2.8}, {"track_width", 2.0}, {"body_length", 4.8},
+        {"wheelbase", wheelbase}, {"track_width", track_width}, {"body_length", 4.8},
         {"body_width", 2.0}, {"wheel_radius", 0.3}, {"front_overhang", 1.0},
         {"rear_overhang", 1.0}, {"width", 2.0}, {"height", 1.8}
       };
@@ -579,7 +588,7 @@ nlohmann::json ScenarioLoader::convertOnlineToInternal(const nlohmann::json& onl
       limits["max_acceleration"] = lim.value("a_max", 3.0);
       limits["max_deceleration"] = 8.0;
       limits["max_steer_angle"] = lim.value("steer_max", 0.6);
-      limits["max_steer_rate"] = 1.0;
+      limits["max_steer_rate"] = lim.value("omega_max", 1.0);  // 🔧 从 omega_max 读取角速度限制
       limits["max_jerk"] = 3.0;
       limits["max_curvature"] = 0.2;
     } else {

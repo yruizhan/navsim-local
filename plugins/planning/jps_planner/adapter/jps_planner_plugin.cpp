@@ -136,6 +136,9 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
               << " x " << esdf_map_->GLY_SIZE_ << std::endl;
   }
 
+  // 🔧 从场景配置更新优化器配置（运动学约束、ICR、checkpoint）
+  updateOptimizerConfigFromChassis(context.ego, jps_config_.optimizer);
+
   // Create or update JPS planner
   if (!jps_planner_ || jps_planner_->getConfig().safe_dis != jps_config_.safe_dis) {
     if (verbose_) {
@@ -149,14 +152,13 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
   }
 
   // Create or update MSPlanner (trajectory optimizer)
-  if (!msplanner_) {
-    if (verbose_) {
-      std::cout << "[JPSPlannerPlugin] Creating MSPlanner (trajectory optimizer)..." << std::endl;
-    }
-    msplanner_ = std::make_shared<JPS::MSPlanner>(jps_config_.optimizer, esdf_map_);
-    if (verbose_) {
-      std::cout << "[JPSPlannerPlugin] MSPlanner created successfully" << std::endl;
-    }
+  // 🔧 注意：每次都重新创建 MSPlanner，因为优化器配置可能已更新
+  if (verbose_) {
+    std::cout << "[JPSPlannerPlugin] Creating MSPlanner (trajectory optimizer) with updated config..." << std::endl;
+  }
+  msplanner_ = std::make_shared<JPS::MSPlanner>(jps_config_.optimizer, esdf_map_);
+  if (verbose_) {
+    std::cout << "[JPSPlannerPlugin] MSPlanner created successfully" << std::endl;
   }
 
   // Convert PlanningContext to JPS input
@@ -446,11 +448,11 @@ bool JpsPlannerPlugin::loadConfig(const json& config) {
     if (config.contains("optimizer")) {
       const auto& opt_config = config["optimizer"];
 
-      // Kinematic constraints
-      jps_config_.optimizer.max_vel = opt_config.value("max_vel", 5.0);
-      jps_config_.optimizer.min_vel = opt_config.value("min_vel", -5.0);
-      jps_config_.optimizer.max_acc = opt_config.value("max_acc", 5.0);
-      jps_config_.optimizer.max_omega = opt_config.value("max_omega", 1.0);
+      // 🔧 注意：运动学约束（max_vel, max_acc, max_omega）已移至从场景配置动态读取
+      // 这些参数现在在 plan() 函数中通过 updateOptimizerConfigFromChassis() 更新
+      // 这里只设置默认值，实际值会被场景配置覆盖
+
+      // Kinematic constraints (will be overridden by chassis config)
       jps_config_.optimizer.max_domega = opt_config.value("max_domega", 50.0);
       jps_config_.optimizer.max_centripetal_acc = opt_config.value("max_centripetal_acc", 10000.0);
       jps_config_.optimizer.if_directly_constrain_v_omega = opt_config.value("if_directly_constrain_v_omega", false);
@@ -553,15 +555,14 @@ bool JpsPlannerPlugin::loadConfig(const json& config) {
       jps_config_.optimizer.hrz_limited = opt_config.value("hrz_limited", false);
       jps_config_.optimizer.hrz_laser_range_dgr = opt_config.value("hrz_laser_range_dgr", 180.0);
 
-      // Standard differential drive
-      jps_config_.optimizer.if_standard_diff = opt_config.value("if_standard_diff", true);
+      // 🔧 注意：if_standard_diff 和 ICR 参数已移至从场景配置动态读取
+      // 这些参数现在在 plan() 函数中通过 updateOptimizerConfigFromChassis() 更新
 
       if (verbose_) {
         std::cout << "[JPSPlannerPlugin] Loaded optimizer configuration:" << std::endl;
-        std::cout << "  - Optimizer max_vel: " << jps_config_.optimizer.max_vel << " m/s" << std::endl;
-        std::cout << "  - Optimizer max_acc: " << jps_config_.optimizer.max_acc << " m/s^2" << std::endl;
-        std::cout << "  - Optimizer max_omega: " << jps_config_.optimizer.max_omega << " rad/s" << std::endl;
         std::cout << "  - Collision weight: " << jps_config_.optimizer.collision_weight << std::endl;
+        std::cout << "  - Safe distance: " << jps_config_.optimizer.safeDis << " m" << std::endl;
+        std::cout << "  - Note: Kinematic constraints (max_vel, max_acc, max_omega) will be loaded from scenario" << std::endl;
       }
     }
 
@@ -597,6 +598,87 @@ bool JpsPlannerPlugin::validateConfig() const {
   }
 
   return true;
+}
+
+// ============================================================================
+// Chassis Configuration Update
+// ============================================================================
+
+void JpsPlannerPlugin::updateOptimizerConfigFromChassis(
+    const navsim::planning::EgoVehicle& ego,
+    JPS::OptimizerConfig& config) const {
+
+  // 🔧 从场景配置更新运动学约束
+  config.max_vel = ego.limits.max_velocity;
+  config.min_vel = -ego.limits.max_velocity;  // 假设对称
+  config.max_acc = ego.limits.max_acceleration;
+  config.max_omega = ego.limits.max_steer_rate;  // 🔧 使用 max_steer_rate 作为角速度限制
+
+  // 🔧 从底盘类型判断是否为标准差分驱动
+  config.if_standard_diff = (ego.chassis_model == "differential");
+
+  // 🔧 计算 ICR (Instantaneous Center of Rotation) 参数
+  if (config.if_standard_diff) {
+    // 差分驱动底盘
+    // ICR.x() = yl (左轮到车体中心的距离) = track_width / 2
+    // ICR.y() = yr (右轮到车体中心的距离) = track_width / 2
+    // ICR.z() = xv (驱动轮到车体中心的距离，差分驱动通常为 0)
+    double half_track = ego.kinematics.track_width / 2.0;
+    config.ICR = Eigen::Vector3d(half_track, half_track, 0.0);
+
+    if (verbose_) {
+      std::cout << "[JPSPlannerPlugin] Differential drive detected:" << std::endl;
+      std::cout << "  - track_width: " << ego.kinematics.track_width << " m" << std::endl;
+      std::cout << "  - ICR: [" << config.ICR.x() << ", " << config.ICR.y()
+                << ", " << config.ICR.z() << "]" << std::endl;
+    }
+  } else if (ego.chassis_model == "ackermann" || ego.chassis_model == "four_wheel") {
+    // 阿克曼转向底盘
+    // ICR 参数需要根据轴距和轮距计算
+    double half_track = ego.kinematics.track_width / 2.0;
+    double wheelbase = ego.kinematics.wheelbase;
+    config.ICR = Eigen::Vector3d(half_track, half_track, wheelbase / 2.0);
+
+    if (verbose_) {
+      std::cout << "[JPSPlannerPlugin] Ackermann drive detected:" << std::endl;
+      std::cout << "  - wheelbase: " << wheelbase << " m" << std::endl;
+      std::cout << "  - track_width: " << ego.kinematics.track_width << " m" << std::endl;
+      std::cout << "  - ICR: [" << config.ICR.x() << ", " << config.ICR.y()
+                << ", " << config.ICR.z() << "]" << std::endl;
+    }
+  } else {
+    // 其他底盘类型，使用默认值
+    config.ICR = Eigen::Vector3d(0.0, 0.0, 1.0);
+
+    if (verbose_) {
+      std::cout << "[JPSPlannerPlugin] Unknown chassis type '" << ego.chassis_model
+                << "', using default ICR" << std::endl;
+    }
+  }
+
+  // 🔧 设置碰撞检测点 (checkpoint)
+  // 检测车体中心点 + 四个角点，确保整个车体都满足安全距离
+  config.checkpoint.clear();
+  config.checkpoint.push_back(Eigen::Vector2d(0.0, 0.0));  // 车体中心
+
+  // 添加车体四角的检查点以提高碰撞检测精度
+  double half_length = ego.kinematics.body_length / 2.0;
+  double half_width = ego.kinematics.body_width / 2.0;
+
+  // 添加四个角点
+  config.checkpoint.push_back(Eigen::Vector2d(half_length, half_width));    // 右前
+  config.checkpoint.push_back(Eigen::Vector2d(half_length, -half_width));   // 左前
+  config.checkpoint.push_back(Eigen::Vector2d(-half_length, half_width));   // 右后
+  config.checkpoint.push_back(Eigen::Vector2d(-half_length, -half_width));  // 左后
+
+  if (verbose_) {
+    std::cout << "[JPSPlannerPlugin] Updated optimizer config from chassis:" << std::endl;
+    std::cout << "  - max_vel: " << config.max_vel << " m/s" << std::endl;
+    std::cout << "  - max_acc: " << config.max_acc << " m/s^2" << std::endl;
+    std::cout << "  - max_omega: " << config.max_omega << " rad/s" << std::endl;
+    std::cout << "  - if_standard_diff: " << (config.if_standard_diff ? "true" : "false") << std::endl;
+    std::cout << "  - checkpoint count: " << config.checkpoint.size() << std::endl;
+  }
 }
 
 // ============================================================================

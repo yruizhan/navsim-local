@@ -143,6 +143,9 @@ bool MSPlanner::minco_plan(const FlatTrajData &flat_traj){
     double start_safe_dis = map_->getDistanceReal(flat_traj.start_state_XYTheta.head(2))*0.85;
     safeDis = std::min(start_safe_dis, safeDis_);
 
+    std::cout << "[Optimizer] Start position distance to obstacle: " << map_->getDistanceReal(flat_traj.start_state_XYTheta.head(2)) << " m" << std::endl;
+    std::cout << "[Optimizer] Adjusted safeDis: " << safeDis << " m (config: " << safeDis_ << " m, start_safe_dis: " << start_safe_dis << " m)" << std::endl;
+
     for(; replan_num_for_coll < safeReplanMaxTime; replan_num_for_coll++){
 
         if(get_state(flat_traj)){

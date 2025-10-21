@@ -133,6 +133,14 @@ private:
    */
   bool convertMincoOutputToResult(navsim::plugin::PlanningResult& result) const;
 
+  /**
+   * @brief Update optimizer config from ego vehicle chassis configuration
+   * @param ego Ego vehicle from planning context
+   * @param config Optimizer config to update (output)
+   */
+  void updateOptimizerConfigFromChassis(const navsim::planning::EgoVehicle& ego,
+                                         JPS::OptimizerConfig& config) const;
+
   // ========== Member Variables ==========
 
   // Core algorithm object

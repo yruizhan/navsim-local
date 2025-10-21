@@ -213,12 +213,58 @@ double ESDFMap::getDistWithGradBilinear(const Eigen::Vector2d &pos, Eigen::Vecto
   grad(0) = ((1.0 - wy) * (d10 - d00) + wy * (d11 - d01)) * inv_grid_interval_;
   grad(1) = ((1.0 - wx) * (d01 - d00) + wx * (d11 - d10)) * inv_grid_interval_;
 
-  return dist * grid_interval_;
+  // ✅ FIX: distance_buffer_all_ 中已经是米单位，不需要再乘以 grid_interval_
+  // 原始代码（sdf_map.cpp）直接返回 dist，没有乘以 grid_interval_
+  return dist;
 }
 
 double ESDFMap::getDistWithGradBilinear(const Eigen::Vector2d &pos, Eigen::Vector2d& grad, const double &mindis) const {
-  double dist = getDistWithGradBilinear(pos, grad);
-  return std::max(dist, mindis);
+  // 🔧 修复：mindis 是性能优化阈值，不是返回值下限
+  // 原始逻辑：如果距离 > mindis（安全），不计算梯度（性能优化）
+  //          如果距离 <= mindis（危险），计算梯度用于优化
+  //          始终返回真实距离
+
+  // 边界检查
+  if (pos.x() < global_x_lower_ || pos.y() < global_y_lower_ ||
+      pos.x() > global_x_upper_ || pos.y() > global_y_upper_) {
+    grad.setZero();
+    return 1e10;  // 边界外返回大值（与原始项目一致）
+  }
+
+  Eigen::Vector2i idx = coord2gridIndex(pos);
+  if (idx.x() >= GLX_SIZE_ - 1 || idx.y() >= GLY_SIZE_ - 1) {
+    grad.setZero();
+    return 1e10;
+  }
+
+  // 计算插值权重
+  Eigen::Vector2d idx_pos = gridIndex2coordd(idx);
+  Eigen::Vector2d diff = (pos - idx_pos) * inv_grid_interval_;
+
+  // 获取四个角点的距离值
+  double values[2][2];
+  for (int x = 0; x < 2; x++) {
+    for (int y = 0; y < 2; y++) {
+      Eigen::Vector2i current_idx = idx + Eigen::Vector2i(x, y);
+      values[x][y] = getDistance(current_idx);
+    }
+  }
+
+  // 双线性插值距离
+  double v0 = (1.0 - diff[0]) * values[0][0] + diff[0] * values[1][0];
+  double v1 = (1.0 - diff[0]) * values[0][1] + diff[0] * values[1][1];
+  double dist = (1.0 - diff[1]) * v0 + diff[1] * v1;
+
+  // 🔧 性能优化：如果距离 > mindis（安全），不计算梯度
+  if (dist > mindis) {
+    return dist;  // 直接返回真实距离，不计算梯度
+  }
+
+  // 🔧 只有当距离 <= mindis（危险）时才计算梯度
+  grad[0] = ((1.0 - diff[1]) * (values[1][0] - values[0][0]) + diff[1] * (values[1][1] - values[0][1])) * inv_grid_interval_;
+  grad[1] = (v1 - v0) * inv_grid_interval_;
+
+  return dist;  // 返回真实距离
 }
 
 double ESDFMap::getDistWithGradBilinear(const Eigen::Vector2d &pos) const {

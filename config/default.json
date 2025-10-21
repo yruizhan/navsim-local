@@ -74,10 +74,8 @@
         "min_traj_num": 3,
         "jps_truncation_time": 5.0,
         "optimizer": {
-          "max_vel": 5.0,
-          "min_vel": -5.0,
-          "max_acc": 5.0,
-          "max_omega": 1.0,
+          "_comment_kinematics": "运动学约束（max_vel, max_acc, max_omega）已移至从场景配置动态读取",
+          "_comment_ICR": "ICR 和 checkpoint 参数现在从场景配置的 chassisConfig 自动计算",
           "max_domega": 50.0,
           "max_centripetal_acc": 10000.0,
           "if_directly_constrain_v_omega": false,
@@ -132,8 +130,7 @@
           "trajPredictResolution": 0.01,
           "if_visual_optimization": false,
           "hrz_limited": false,
-          "hrz_laser_range_dgr": 180.0,
-          "if_standard_diff": true
+          "hrz_laser_range_dgr": 180.0
         }
       }
     }
