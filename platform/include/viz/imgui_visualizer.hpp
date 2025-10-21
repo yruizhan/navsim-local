@@ -110,7 +110,7 @@ private:
   struct VisualizationOptions {
     bool show_ego = true;              // 显示自车
     bool show_goal = true;             // 显示目标点
-    bool show_trajectory = true;       // 显示规划轨迹
+    // bool show_trajectory = true;    // 已移除：不再显示主轨迹，只显示调试路径
     bool show_bev_obstacles = true;    // 显示 BEV 静态障碍物
     bool show_dynamic_obstacles = true;// 显示动态障碍物
     bool show_occupancy_grid = true;   // 显示栅格地图

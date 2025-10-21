@@ -57,7 +57,7 @@ struct CommandLineArgs {
   std::string scenario_file;
   std::string planner_name;
   std::vector<std::string> perception_plugins;
-  bool visualize = false;
+  bool visualize = true;  // 默认启用可视化
   bool verbose = false;
   std::string output_file;  // 可选：保存规划结果到文件
   
@@ -86,14 +86,15 @@ void printUsage(const char* program_name) {
             << "  --scenario <file>       JSON scenario file (required)\n"
             << "  --planner <name>        Planner plugin name or path (required)\n"
             << "  --perception <plugins>  Comma-separated perception plugin names (optional)\n"
-            << "  --visualize             Enable visualization (optional)\n"
+            << "  --visualize             Enable visualization (default: enabled)\n"
+            << "  --no-visualize          Disable visualization\n"
             << "  --verbose               Enable verbose logging (optional)\n"
             << "  --output <file>         Save planning result to JSON file (optional)\n"
             << "  --help                  Show this help message\n\n"
             << "Examples:\n"
             << "  " << program_name << " --scenario scenarios/simple.json --planner JpsPlanner\n"
             << "  " << program_name << " --scenario scenarios/test.json --planner AStarPlanner --perception GridMapBuilder,ESDFBuilder\n"
-            << "  " << program_name << " --scenario scenarios/complex.json --planner /path/to/libmy_planner.so --visualize\n"
+            << "  " << program_name << " --scenario scenarios/complex.json --planner /path/to/libmy_planner.so --no-visualize\n"
             << std::endl;
 }
 
@@ -121,6 +122,8 @@ bool parseCommandLine(int argc, char** argv, CommandLineArgs& args) {
       args.perception_plugins.push_back(plugins_str.substr(start));
     } else if (arg == "--visualize") {
       args.visualize = true;
+    } else if (arg == "--no-visualize") {
+      args.visualize = false;
     } else if (arg == "--verbose") {
       args.verbose = true;
     } else if (arg == "--output" && i + 1 < argc) {
@@ -494,12 +497,12 @@ int main(int argc, char** argv) {
             "MINCO Stage2 (Main Opt)"
           };
           std::vector<std::string> colors{
-            "red",      // Raw JPS Path
-            "green",    // Optimized Path
-            "blue",     // Sample Trajectory
-            "magenta",  // MINCO Final
-            "orange",   // MINCO Stage1
-            "cyan"      // MINCO Stage2
+            "red",      // Raw JPS Path - 红色
+            "green",    // Optimized Path - 绿色
+            "blue",     // Sample Trajectory - 蓝色
+            "yellow",   // MINCO Final - 黄色（高对比度）
+            "magenta",  // MINCO Stage1 - 洋红色（高对比度）
+            "cyan"      // MINCO Stage2 - 青色（高对比度）
           };
           g_visualizer->drawDebugPaths(*debug_paths_ptr, path_names, colors);
         } else {
@@ -610,12 +613,12 @@ int main(int argc, char** argv) {
                 "MINCO Stage2 (Main Opt)"
               };
               std::vector<std::string> colors{
-                "red",      // Raw JPS Path
-                "green",    // Optimized Path
-                "blue",     // Sample Trajectory
-                "magenta",  // MINCO Final
-                "orange",   // MINCO Stage1
-                "cyan"      // MINCO Stage2
+                "red",      // Raw JPS Path - 红色
+                "green",    // Optimized Path - 绿色
+                "blue",     // Sample Trajectory - 蓝色
+                "yellow",   // MINCO Final - 黄色（高对比度）
+                "magenta",  // MINCO Stage1 - 洋红色（高对比度）
+                "cyan"      // MINCO Stage2 - 青色（高对比度）
               };
               g_visualizer->drawDebugPaths(*debug_paths_ptr, path_names, colors);
             }

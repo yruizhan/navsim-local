@@ -302,14 +302,14 @@ void ImGuiVisualizer::drawDebugPaths(const std::vector<std::vector<planning::Pos
   debug_path_names_ = path_names;
   debug_path_colors_ = colors;
 
-  static int call_count = 0;
-  if (call_count++ % 60 == 0) {
-    std::cout << "[Viz] drawDebugPaths called with " << paths.size() << " paths" << std::endl;
-    for (size_t i = 0; i < paths.size(); ++i) {
-      std::cout << "[Viz]   Path " << i << " (" << (i < path_names.size() ? path_names[i] : "Unknown")
-                << "): " << paths[i].size() << " points" << std::endl;
-    }
-  }
+  // static int call_count = 0;
+  // if (call_count++ % 60 == 0) {
+  //   std::cout << "[Viz] drawDebugPaths called with " << paths.size() << " paths" << std::endl;
+  //   for (size_t i = 0; i < paths.size(); ++i) {
+  //     std::cout << "[Viz]   Path " << i << " (" << (i < path_names.size() ? path_names[i] : "Unknown")
+  //               << "): " << paths[i].size() << " points" << std::endl;
+  //   }
+  // }
 }
 
 void ImGuiVisualizer::updatePlanningContext(const planning::PlanningContext& context) {
@@ -456,12 +456,12 @@ void ImGuiVisualizer::endFrame() {
 }
 
 void ImGuiVisualizer::renderScene() {
-  static int render_count = 0;
-  if (render_count++ % 60 == 0) {
-    std::cout << "[Viz] renderScene called #" << render_count
-              << ", has_world_data=" << has_world_data_
-              << ", has_planning_result=" << has_planning_result_ << std::endl;
-  }
+  // static int render_count = 0;
+  // if (render_count++ % 60 == 0) {
+  //   std::cout << "[Viz] renderScene called #" << render_count
+  //             << ", has_world_data=" << has_world_data_
+  //             << ", has_planning_result=" << has_planning_result_ << std::endl;
+  // }
 
   // 创建主场景窗口
   ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
@@ -890,24 +890,24 @@ void ImGuiVisualizer::renderScene() {
   }
 
   // 2. 绘制 BEV 障碍物 - 矩形
-  if (obstacle_log_count % 60 == 0 && !bev_obstacles_.rectangles.empty()) {
-    std::cout << "[Viz]   Drawing " << bev_obstacles_.rectangles.size() << " BEV rectangles" << std::endl;
-    std::cout << "[Viz]     First rect: world=(" << bev_obstacles_.rectangles[0].pose.x
-              << ", " << bev_obstacles_.rectangles[0].pose.y
-              << "), size=(" << bev_obstacles_.rectangles[0].width
-              << " x " << bev_obstacles_.rectangles[0].height << ")" << std::endl;
-  }
+  // if (obstacle_log_count % 60 == 0 && !bev_obstacles_.rectangles.empty()) {
+  //   std::cout << "[Viz]   Drawing " << bev_obstacles_.rectangles.size() << " BEV rectangles" << std::endl;
+  //   std::cout << "[Viz]     First rect: world=(" << bev_obstacles_.rectangles[0].pose.x
+  //             << ", " << bev_obstacles_.rectangles[0].pose.y
+  //             << "), size=(" << bev_obstacles_.rectangles[0].width
+  //             << " x " << bev_obstacles_.rectangles[0].height << ")" << std::endl;
+  // }
 
   for (const auto& rect : bev_obstacles_.rectangles) {
     auto center = worldToScreen(rect.pose.x, rect.pose.y);
     float w = rect.width * config_.pixels_per_meter * view_state_.zoom;
     float h = rect.height * config_.pixels_per_meter * view_state_.zoom;
 
-    if (obstacle_log_count % 60 == 0) {
-      auto screen_pos = worldToScreen(rect.pose.x, rect.pose.y);
-      std::cout << "[Viz]       Rect screen pos=(" << screen_pos.x << ", " << screen_pos.y
-                << "), size=(" << w << " x " << h << "), yaw=" << rect.pose.yaw << std::endl;
-    }
+    // if (obstacle_log_count % 60 == 0) {
+    //   auto screen_pos = worldToScreen(rect.pose.x, rect.pose.y);
+    //   std::cout << "[Viz]       Rect screen pos=(" << screen_pos.x << ", " << screen_pos.y
+    //             << "), size=(" << w << " x " << h << "), yaw=" << rect.pose.yaw << std::endl;
+    // }
 
     // 正确绘制带旋转的矩形
     float cos_yaw = std::cos(rect.pose.yaw);
@@ -990,16 +990,17 @@ void ImGuiVisualizer::renderScene() {
   // 🎨 4. 绘制动态障碍物（可选）
   static int dyn_obs_log_count = 0;
   if (viz_options_.show_dynamic_obstacles) {
-    if (dyn_obs_log_count++ % 60 == 0 && !dynamic_obstacles_.empty()) {
-      std::cout << "[Viz]   Drawing " << dynamic_obstacles_.size() << " dynamic obstacles" << std::endl;
-    // 🔧 修复问题1：打印所有障碍物的信息
-    for (size_t i = 0; i < dynamic_obstacles_.size(); ++i) {
-      const auto& obs = dynamic_obstacles_[i];
-      std::cout << "[Viz]     Dyn obs #" << i << ": shape=" << obs.shape_type
-                << ", pos=(" << obs.current_pose.x << ", " << obs.current_pose.y
-                << "), length=" << obs.length << ", width=" << obs.width << std::endl;
-    }
-  }
+    // if (dyn_obs_log_count++ % 60 == 0 && !dynamic_obstacles_.empty()) {
+    //   std::cout << "[Viz]   Drawing " << dynamic_obstacles_.size() << " dynamic obstacles" << std::endl;
+    // // 🔧 修复问题1：打印所有障碍物的信息
+    // for (size_t i = 0; i < dynamic_obstacles_.size(); ++i) {
+    //   const auto& obs = dynamic_obstacles_[i];
+    //   std::cout << "[Viz]     Dyn obs #" << i << ": shape=" << obs.shape_type
+    //             << ", pos=(" << obs.current_pose.x << ", " << obs.current_pose.y
+    //             << "), length=" << obs.length << ", width=" << obs.width << std::endl;
+    // }
+    // }
+    dyn_obs_log_count++;  // 保留计数器更新
 
   for (const auto& dyn_obs : dynamic_obstacles_) {
     auto center = worldToScreen(dyn_obs.current_pose.x, dyn_obs.current_pose.y);
@@ -1011,9 +1012,9 @@ void ImGuiVisualizer::renderScene() {
       // 绘制圆形动态障碍物
       float radius = dyn_obs.length / 2.0f * config_.pixels_per_meter * view_state_.zoom;
 
-      if (dyn_obs_log_count % 60 == 0) {
-        std::cout << "[Viz]       Dyn obs (circle) radius=" << radius << " pixels (diameter=" << dyn_obs.length << ")" << std::endl;
-      }
+      // if (dyn_obs_log_count % 60 == 0) {
+      //   std::cout << "[Viz]       Dyn obs (circle) radius=" << radius << " pixels (diameter=" << dyn_obs.length << ")" << std::endl;
+      // }
 
       draw_list->AddCircleFilled(
         ImVec2(center.x, center.y),
@@ -1110,6 +1111,9 @@ void ImGuiVisualizer::renderScene() {
       IM_COL32(255, 100, 100, 255),  // 红色 - Raw JPS path
       IM_COL32(100, 255, 100, 255),  // 绿色 - Optimized path
       IM_COL32(100, 100, 255, 255),  // 蓝色 - Sample trajectory
+      IM_COL32(255, 255, 0, 255),    // 黄色 - MINCO Final (高对比度)
+      IM_COL32(255, 0, 255, 255),    // 洋红色 - MINCO Stage1 (高对比度)
+      IM_COL32(0, 255, 255, 255)     // 青色 - MINCO Stage2 (高对比度)
     };
 
     std::vector<bool> path_enabled = {
@@ -1146,30 +1150,30 @@ void ImGuiVisualizer::renderScene() {
     }
   }
 
-  // 🎨 5. 绘制规划轨迹（可选）
-  if (viz_options_.show_trajectory) {
-    // static int traj_log_count = 0;
-    // if (traj_log_count++ % 60 == 0 && trajectory_.size() > 1) {
-    //   std::cout << "[Viz]   Drawing trajectory with " << trajectory_.size() << " points" << std::endl;
-    //   auto test_p1 = worldToScreen(trajectory_[0].pose.x, trajectory_[0].pose.y);
-    //   auto test_p2 = worldToScreen(trajectory_[1].pose.x, trajectory_[1].pose.y);
-    //   std::cout << "[Viz]     First segment: (" << test_p1.x << "," << test_p1.y
-    //             << ") -> (" << test_p2.x << "," << test_p2.y << ")" << std::endl;
-    // }
+  // 🎨 5. 绘制规划轨迹（已禁用 - 只显示调试路径）
+  // if (viz_options_.show_trajectory) {
+  //   // static int traj_log_count = 0;
+  //   // if (traj_log_count++ % 60 == 0 && trajectory_.size() > 1) {
+  //   //   std::cout << "[Viz]   Drawing trajectory with " << trajectory_.size() << " points" << std::endl;
+  //   //   auto test_p1 = worldToScreen(trajectory_[0].pose.x, trajectory_[0].pose.y);
+  //   //   auto test_p2 = worldToScreen(trajectory_[1].pose.x, trajectory_[1].pose.y);
+  //   //   std::cout << "[Viz]     First segment: (" << test_p1.x << "," << test_p1.y
+  //   //             << ") -> (" << test_p2.x << "," << test_p2.y << ")" << std::endl;
+  //   // }
 
-    if (trajectory_.size() > 1) {
-      for (size_t i = 1; i < trajectory_.size(); ++i) {
-        auto p1 = worldToScreen(trajectory_[i-1].pose.x, trajectory_[i-1].pose.y);
-        auto p2 = worldToScreen(trajectory_[i].pose.x, trajectory_[i].pose.y);
-        draw_list->AddLine(
-          ImVec2(p1.x, p1.y),
-          ImVec2(p2.x, p2.y),
-          IM_COL32(0, 255, 255, 255),  // 青色
-          3.0f
-        );
-      }
-    }
-  }  // 🎨 结束轨迹绘制
+  //   if (trajectory_.size() > 1) {
+  //     for (size_t i = 1; i < trajectory_.size(); ++i) {
+  //       auto p1 = worldToScreen(trajectory_[i-1].pose.x, trajectory_[i-1].pose.y);
+  //       auto p2 = worldToScreen(trajectory_[i].pose.x, trajectory_[i].pose.y);
+  //       draw_list->AddLine(
+  //         ImVec2(p1.x, p1.y),
+  //         ImVec2(p2.x, p2.y),
+  //         IM_COL32(0, 255, 255, 255),  // 青色
+  //         3.0f
+  //       );
+  //     }
+  //   }
+  // }  // 🎨 结束轨迹绘制
 
   // 🎨 6. 绘制目标点（可选）
   if (viz_options_.show_goal) {
@@ -1639,9 +1643,7 @@ void ImGuiVisualizer::renderLegendPanel() {
   ImGui::SameLine();
   ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "[Red]");
 
-  ImGui::Checkbox("Show Trajectory", &viz_options_.show_trajectory);
-  ImGui::SameLine();
-  ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Cyan]");
+  // 已移除 "Show Trajectory" - 只显示调试路径
 
   // Debug paths for JPS planner
   ImGui::Checkbox("Show Debug Paths", &viz_options_.show_debug_paths);
@@ -1664,11 +1666,11 @@ void ImGuiVisualizer::renderLegendPanel() {
 
     ImGui::Checkbox("MINCO Final Trajectory", &viz_options_.show_minco_trajectory);
     ImGui::SameLine();
-    ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "[Magenta - Final Result]");
+    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Yellow - Final Result]");
 
     ImGui::Checkbox("MINCO Stage 1 (Preprocessing)", &viz_options_.show_minco_stage1_trajectory);
     ImGui::SameLine();
-    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "[Orange - After Preprocessing]");
+    ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "[Magenta - After Preprocessing]");
 
     ImGui::Checkbox("MINCO Stage 2 (Main Opt)", &viz_options_.show_minco_stage2_trajectory);
     ImGui::SameLine();
@@ -1779,7 +1781,7 @@ void ImGuiVisualizer::renderLegendPanel() {
   if (ImGui::Button("Show All")) {
     viz_options_.show_ego = true;
     viz_options_.show_goal = true;
-    viz_options_.show_trajectory = true;
+    // viz_options_.show_trajectory = true;  // 已移除
     viz_options_.show_debug_paths = true;
     viz_options_.show_raw_jps_path = true;
     viz_options_.show_optimized_path = true;
@@ -1797,7 +1799,7 @@ void ImGuiVisualizer::renderLegendPanel() {
   if (ImGui::Button("Hide All")) {
     viz_options_.show_ego = false;
     viz_options_.show_goal = false;
-    viz_options_.show_trajectory = false;
+    // viz_options_.show_trajectory = false;  // 已移除
     viz_options_.show_debug_paths = false;
     viz_options_.show_raw_jps_path = false;
     viz_options_.show_optimized_path = false;

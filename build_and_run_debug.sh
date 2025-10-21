@@ -13,6 +13,7 @@ echo ""
 SCENARIO="scenarios/map1.json"
 PLANNER="JpsPlanner"
 PERCEPTION="EsdfBuilder"
+CMAKE_BUILD_TYPE="Release"
 
 # 解析命令行参数
 while [[ $# -gt 0 ]]; do
@@ -101,9 +102,11 @@ echo "📁 Preparing build directory..."
 mkdir -p build
 cd build
 
-# 配置 CMake
+# 配置 CMake (可视化默认启用)
 echo "⚙️  Configuring CMake..."
-cmake .. -DBUILD_PLUGINS=ON
+cmake .. \
+    -DBUILD_PLUGINS=ON \
+    -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
 
 echo ""
 
@@ -130,9 +133,8 @@ echo ""
 echo "=========================================="
 echo ""
 
-# 自动运行 navsim_local_debug
+# 自动运行 navsim_local_debug (可视化默认启用)
 ./navsim_local_debug \
     --scenario "$SCENARIO_ABS" \
     --planner "$PLANNER" \
-    --perception "$PERCEPTION" \
-    --visualize
+    --perception "$PERCEPTION"

@@ -88,7 +88,7 @@ if(BUILD_PLUGINS)
 endif()
 
 # ========== Visualization (ImGui + SDL2) ==========
-option(ENABLE_VISUALIZATION "Enable ImGui visualization" OFF)
+option(ENABLE_VISUALIZATION "Enable ImGui visualization" ON)
 if(ENABLE_VISUALIZATION)
     message(STATUS "Visualization enabled")
 
