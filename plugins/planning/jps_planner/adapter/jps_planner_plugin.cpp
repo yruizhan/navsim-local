@@ -381,6 +381,12 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
     }
 
     // Collect preprocessing trajectory (Stage 1)
+    if (verbose_) {
+      Eigen::Vector3d start_state = msplanner_->get_current_iniStateXYTheta();
+      std::cout << "[JPSPlannerPlugin] Start state for trajectory extraction: ("
+                << start_state.x() << ", " << start_state.y() << ", " << start_state.z() << ")" << std::endl;
+    }
+
     std::vector<navsim::planning::Pose2d> preprocessing_poses = extractPreprocessingTrajectory();
     if (!preprocessing_poses.empty()) {
       global_debug_paths.push_back(preprocessing_poses);
@@ -732,38 +738,58 @@ std::vector<navsim::planning::Pose2d> JpsPlannerPlugin::extractPreprocessingTraj
     return preprocessing_poses;
   }
 
+  // Get the correct start position from MSPlanner
+  Eigen::Vector3d start_state_XYTheta = msplanner_->get_current_iniStateXYTheta();
+  Eigen::Vector2d pos(start_state_XYTheta.x(), start_state_XYTheta.y());
+
+  // Use the same Simpson's rule integration as extractMincoTrajectory()
+  int K = 50;  // Sampling resolution
+  int SamNumEachPart = 2 * K;
+  double sumT = 0.0;
+
   Eigen::VectorXd pieceTime = traj.getDurations();
 
-  int K = 50;  // Samples per piece
-  double sumT = 0.0;
-  Eigen::Vector2d pos(0.0, 0.0);  // Start from origin
+  for(int i = 0; i < TrajNum; i++) {
+    double step = pieceTime[i] / K;
+    double halfstep = step / 2.0;
+    double CoeffIntegral = pieceTime[i] / K / 6.0;
 
-  for (int i = 0; i < TrajNum; i++) {
-    std::vector<double> Yaw(K);
-    std::vector<double> IntegralX(K);
-    std::vector<double> IntegralY(K);
+    Eigen::VectorXd IntegralX(K);
+    IntegralX.setZero();
+    Eigen::VectorXd IntegralY(K);
+    IntegralY.setZero();
+    Eigen::VectorXd Yaw(K);
+    Yaw.setZero();
 
-    for (int j = 0; j < K; j++) {
-      double s1 = sumT + pieceTime[i] * j / K;
-      Eigen::Vector2d currPos = traj.getPos(s1);
-      Eigen::Vector2d currVel = traj.getVel(s1);
+    double s1 = 0.0;
+    for(int j = 0; j <= SamNumEachPart; j++) {
+      if(j % 2 == 0) {
+        Eigen::Vector2d currPos = traj.getPos(s1 + sumT);
+        Eigen::Vector2d currVel = traj.getVel(s1 + sumT);
+        s1 += halfstep;
 
-      Yaw[j] = currPos.x();
-      double CoeffIntegral = pieceTime[i] / K;
+        if(j != 0) {
+          IntegralX[j/2-1] += CoeffIntegral * currVel.y() * cos(currPos.x());
+          IntegralY[j/2-1] += CoeffIntegral * currVel.y() * sin(currPos.x());
+          Yaw[j/2-1] = currPos.x();
+        }
+        if(j != SamNumEachPart) {
+          IntegralX[j/2] += CoeffIntegral * currVel.y() * cos(currPos.x());
+          IntegralY[j/2] += CoeffIntegral * currVel.y() * sin(currPos.x());
+        }
+      }
+      else {
+        Eigen::Vector2d currPos = traj.getPos(s1 + sumT);
+        Eigen::Vector2d currVel = traj.getVel(s1 + sumT);
+        s1 += halfstep;
 
-      if (j == 0 || j == K - 1) {
-        IntegralX[j] = CoeffIntegral * currVel.y() * cos(currPos.x());
-        IntegralY[j] = CoeffIntegral * currVel.y() * sin(currPos.x());
-      } else if (j % 2 == 1) {
-        IntegralX[j] = 4.0 * CoeffIntegral * currVel.y() * cos(currPos.x());
-        IntegralY[j] = 4.0 * CoeffIntegral * currVel.y() * sin(currPos.x());
-      } else {
-        IntegralX[j / 2] += 4.0 * CoeffIntegral * currVel.y() * cos(currPos.x());
-        IntegralY[j / 2] += 4.0 * CoeffIntegral * currVel.y() * sin(currPos.x());
+        IntegralX[j/2] += 4.0 * CoeffIntegral * currVel.y() * cos(currPos.x());
+        IntegralY[j/2] += 4.0 * CoeffIntegral * currVel.y() * sin(currPos.x());
       }
     }
 
-    for (int j = 0; j < K; j++) {
+    // Add points for this piece
+    for(int j = 0; j < K; j++) {
       pos.x() += IntegralX[j];
       pos.y() += IntegralY[j];
 
@@ -795,38 +821,58 @@ std::vector<navsim::planning::Pose2d> JpsPlannerPlugin::extractMainOptimizationT
     return optimization_poses;
   }
 
+  // Get the correct start position from MSPlanner
+  Eigen::Vector3d start_state_XYTheta = msplanner_->get_current_iniStateXYTheta();
+  Eigen::Vector2d pos(start_state_XYTheta.x(), start_state_XYTheta.y());
+
+  // Use the same Simpson's rule integration as extractMincoTrajectory()
+  int K = 50;  // Sampling resolution
+  int SamNumEachPart = 2 * K;
+  double sumT = 0.0;
+
   Eigen::VectorXd pieceTime = traj.getDurations();
 
-  int K = 50;  // Samples per piece
-  double sumT = 0.0;
-  Eigen::Vector2d pos(0.0, 0.0);  // Start from origin
+  for(int i = 0; i < TrajNum; i++) {
+    double step = pieceTime[i] / K;
+    double halfstep = step / 2.0;
+    double CoeffIntegral = pieceTime[i] / K / 6.0;
 
-  for (int i = 0; i < TrajNum; i++) {
-    std::vector<double> Yaw(K);
-    std::vector<double> IntegralX(K);
-    std::vector<double> IntegralY(K);
+    Eigen::VectorXd IntegralX(K);
+    IntegralX.setZero();
+    Eigen::VectorXd IntegralY(K);
+    IntegralY.setZero();
+    Eigen::VectorXd Yaw(K);
+    Yaw.setZero();
 
-    for (int j = 0; j < K; j++) {
-      double s1 = sumT + pieceTime[i] * j / K;
-      Eigen::Vector2d currPos = traj.getPos(s1);
-      Eigen::Vector2d currVel = traj.getVel(s1);
+    double s1 = 0.0;
+    for(int j = 0; j <= SamNumEachPart; j++) {
+      if(j % 2 == 0) {
+        Eigen::Vector2d currPos = traj.getPos(s1 + sumT);
+        Eigen::Vector2d currVel = traj.getVel(s1 + sumT);
+        s1 += halfstep;
 
-      Yaw[j] = currPos.x();
-      double CoeffIntegral = pieceTime[i] / K;
+        if(j != 0) {
+          IntegralX[j/2-1] += CoeffIntegral * currVel.y() * cos(currPos.x());
+          IntegralY[j/2-1] += CoeffIntegral * currVel.y() * sin(currPos.x());
+          Yaw[j/2-1] = currPos.x();
+        }
+        if(j != SamNumEachPart) {
+          IntegralX[j/2] += CoeffIntegral * currVel.y() * cos(currPos.x());
+          IntegralY[j/2] += CoeffIntegral * currVel.y() * sin(currPos.x());
+        }
+      }
+      else {
+        Eigen::Vector2d currPos = traj.getPos(s1 + sumT);
+        Eigen::Vector2d currVel = traj.getVel(s1 + sumT);
+        s1 += halfstep;
 
-      if (j == 0 || j == K - 1) {
-        IntegralX[j] = CoeffIntegral * currVel.y() * cos(currPos.x());
-        IntegralY[j] = CoeffIntegral * currVel.y() * sin(currPos.x());
-      } else if (j % 2 == 1) {
-        IntegralX[j] = 4.0 * CoeffIntegral * currVel.y() * cos(currPos.x());
-        IntegralY[j] = 4.0 * CoeffIntegral * currVel.y() * sin(currPos.x());
-      } else {
-        IntegralX[j / 2] += 4.0 * CoeffIntegral * currVel.y() * cos(currPos.x());
-        IntegralY[j / 2] += 4.0 * CoeffIntegral * currVel.y() * sin(currPos.x());
+        IntegralX[j/2] += 4.0 * CoeffIntegral * currVel.y() * cos(currPos.x());
+        IntegralY[j/2] += 4.0 * CoeffIntegral * currVel.y() * sin(currPos.x());
       }
     }
 
-    for (int j = 0; j < K; j++) {
+    // Add points for this piece
+    for(int j = 0; j < K; j++) {
       pos.x() += IntegralX[j];
       pos.y() += IntegralY[j];
 
