@@ -220,8 +220,11 @@ inline Eigen::Vector2i ESDFMap::coord2gridIndex(const Eigen::Vector2d &pt) const
 
 inline Eigen::Vector2i ESDFMap::ESDFcoord2gridIndex(const Eigen::Vector2d &pt) const {
   Eigen::Vector2i idx;
-  idx(0) = static_cast<int>((pt(0) - global_x_lower_) * inv_grid_interval_ + 0.5);
-  idx(1) = static_cast<int>((pt(1) - global_y_lower_) * inv_grid_interval_ + 0.5);
+  // ✅ FIX: 原始代码使用 -0.5，不是 +0.5
+  // 这是因为 gridIndex2coordd 返回栅格中心坐标 (index + 0.5) * interval + lower
+  // 反向计算：(pt - lower) * inv_interval = index + 0.5，所以需要 -0.5
+  idx(0) = std::min(std::max(static_cast<int>((pt(0) - global_x_lower_) * inv_grid_interval_ - 0.5), 0), GLX_SIZE_ - 1);
+  idx(1) = std::min(std::max(static_cast<int>((pt(1) - global_y_lower_) * inv_grid_interval_ - 0.5), 0), GLY_SIZE_ - 1);
   return idx;
 }
 
@@ -301,9 +304,14 @@ inline uint8_t ESDFMap::CheckCollisionBycoord(const double ptx, const double pty
 }
 
 inline double ESDFMap::getDistanceReal(const Eigen::Vector2d& pos) const {
-  Eigen::Vector2i idx = ESDFcoord2gridIndex(pos);
-  if (!isValidIndex(idx)) return 0.0; // 边界外返回 0
-  // ✅ FIX: getDistance() 已经返回米单位，不需要再乘以 grid_interval_
+  // ✅ FIX: 原始代码使用 coord2gridIndex，不是 ESDFcoord2gridIndex
+  // ✅ FIX: 边界外返回 10000，不是 0
+  if (pos.x() < global_x_lower_ || pos.y() < global_y_lower_ ||
+      pos.x() > global_x_upper_ || pos.y() > global_y_upper_) {
+    return 10000.0;
+  }
+  Eigen::Vector2i idx = coord2gridIndex(pos);
+  if (!isValidIndex(idx)) return 10000.0;
   return getDistance(idx);
 }
 

@@ -658,18 +658,18 @@ void JpsPlannerPlugin::updateOptimizerConfigFromChassis(
 
   // 🔧 设置碰撞检测点 (checkpoint)
   // 检测车体中心点 + 四个角点，确保整个车体都满足安全距离
-  config.checkpoint.clear();
-  config.checkpoint.push_back(Eigen::Vector2d(0.0, 0.0));  // 车体中心
+  // config.checkpoint.clear();
+  // config.checkpoint.push_back(Eigen::Vector2d(0.0, 0.0));  // 车体中心
 
-  // 添加车体四角的检查点以提高碰撞检测精度
-  double half_length = ego.kinematics.body_length / 2.0;
-  double half_width = ego.kinematics.body_width / 2.0;
+  // // 添加车体四角的检查点以提高碰撞检测精度
+  // double half_length = ego.kinematics.body_length / 2.0;
+  // double half_width = ego.kinematics.body_width / 2.0;
 
-  // 添加四个角点
-  config.checkpoint.push_back(Eigen::Vector2d(half_length, half_width));    // 右前
-  config.checkpoint.push_back(Eigen::Vector2d(half_length, -half_width));   // 左前
-  config.checkpoint.push_back(Eigen::Vector2d(-half_length, half_width));   // 右后
-  config.checkpoint.push_back(Eigen::Vector2d(-half_length, -half_width));  // 左后
+  // // 添加四个角点
+  // config.checkpoint.push_back(Eigen::Vector2d(half_length, half_width));    // 右前
+  // config.checkpoint.push_back(Eigen::Vector2d(half_length, -half_width));   // 左前
+  // config.checkpoint.push_back(Eigen::Vector2d(-half_length, half_width));   // 右后
+  // config.checkpoint.push_back(Eigen::Vector2d(-half_length, -half_width));  // 左后
 
   if (verbose_) {
     std::cout << "[JPSPlannerPlugin] Updated optimizer config from chassis:" << std::endl;

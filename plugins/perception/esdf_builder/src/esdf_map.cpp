@@ -180,41 +180,43 @@ void ESDFMap::fillESDF(F_get_val f_get_val, F_set_val f_set_val, int start, int 
 }
 
 double ESDFMap::getDistWithGradBilinear(const Eigen::Vector2d &pos, Eigen::Vector2d& grad) const {
-  // 双线性插值计算距离和梯度
-  Eigen::Vector2i idx = coord2gridIndex(pos);
-
-  if (!isValidIndex(idx)) {
+  // ✅ FIX: 边界检查，返回值与原始代码一致
+  if (pos.x() < global_x_lower_ || pos.y() < global_y_lower_ ||
+      pos.x() > global_x_upper_ || pos.y() > global_y_upper_) {
     grad.setZero();
-    return 0.0;
+    return 100.0;  // 原始代码返回 100
   }
 
-  // 计算插值权重
-  Eigen::Vector2d pos_grid = (pos - Eigen::Vector2d(global_x_lower_, global_y_lower_)) * inv_grid_interval_;
-  double wx = pos_grid(0) - static_cast<double>(idx(0));
-  double wy = pos_grid(1) - static_cast<double>(idx(1));
+  // ✅ FIX: 使用 ESDFcoord2gridIndex，与原始代码一致
+  Eigen::Vector2i idx = ESDFcoord2gridIndex(pos);
 
-  // 限制在 [0, 1] 范围内
-  wx = std::max(0.0, std::min(1.0, wx));
-  wy = std::max(0.0, std::min(1.0, wy));
+  if (idx.x() >= GLX_SIZE_ - 1 || idx.y() >= GLY_SIZE_ - 1) {
+    grad.setZero();
+    return 100.0;  // 原始代码返回 100
+  }
+
+  // ✅ FIX: 使用 gridIndex2coordd 计算插值权重，与原始代码一致
+  Eigen::Vector2d idx_pos = gridIndex2coordd(idx);
+  Eigen::Vector2d diff = (pos - idx_pos) * inv_grid_interval_;
 
   // 获取四个角点的距离值
-  double d00 = getDistance(idx(0), idx(1));
-  double d10 = getDistance(idx(0) + 1, idx(1));
-  double d01 = getDistance(idx(0), idx(1) + 1);
-  double d11 = getDistance(idx(0) + 1, idx(1) + 1);
+  double values[2][2];
+  for (int x = 0; x < 2; x++) {
+    for (int y = 0; y < 2; y++) {
+      Eigen::Vector2i current_idx = idx + Eigen::Vector2i(x, y);
+      values[x][y] = getDistance(current_idx);
+    }
+  }
 
   // 双线性插值距离
-  double dist = (1.0 - wx) * (1.0 - wy) * d00 +
-                wx * (1.0 - wy) * d10 +
-                (1.0 - wx) * wy * d01 +
-                wx * wy * d11;
+  double v0 = (1.0 - diff[0]) * values[0][0] + diff[0] * values[1][0];
+  double v1 = (1.0 - diff[0]) * values[0][1] + diff[0] * values[1][1];
+  double dist = (1.0 - diff[1]) * v0 + diff[1] * v1;
 
-  // 计算梯度（数值微分）
-  grad(0) = ((1.0 - wy) * (d10 - d00) + wy * (d11 - d01)) * inv_grid_interval_;
-  grad(1) = ((1.0 - wx) * (d01 - d00) + wx * (d11 - d10)) * inv_grid_interval_;
+  // 计算梯度（与原始代码顺序一致）
+  grad[1] = (v1 - v0) * inv_grid_interval_;
+  grad[0] = ((1.0 - diff[1]) * (values[1][0] - values[0][0]) + diff[1] * (values[1][1] - values[0][1])) * inv_grid_interval_;
 
-  // ✅ FIX: distance_buffer_all_ 中已经是米单位，不需要再乘以 grid_interval_
-  // 原始代码（sdf_map.cpp）直接返回 dist，没有乘以 grid_interval_
   return dist;
 }
 
@@ -231,13 +233,14 @@ double ESDFMap::getDistWithGradBilinear(const Eigen::Vector2d &pos, Eigen::Vecto
     return 1e10;  // 边界外返回大值（与原始项目一致）
   }
 
-  Eigen::Vector2i idx = coord2gridIndex(pos);
+  // ✅ FIX: 使用 ESDFcoord2gridIndex，与原始代码一致
+  Eigen::Vector2i idx = ESDFcoord2gridIndex(pos);
   if (idx.x() >= GLX_SIZE_ - 1 || idx.y() >= GLY_SIZE_ - 1) {
     grad.setZero();
     return 1e10;
   }
 
-  // 计算插值权重
+  // ✅ FIX: 使用 gridIndex2coordd 计算插值权重，与原始代码一致
   Eigen::Vector2d idx_pos = gridIndex2coordd(idx);
   Eigen::Vector2d diff = (pos - idx_pos) * inv_grid_interval_;
 
@@ -260,9 +263,9 @@ double ESDFMap::getDistWithGradBilinear(const Eigen::Vector2d &pos, Eigen::Vecto
     return dist;  // 直接返回真实距离，不计算梯度
   }
 
-  // 🔧 只有当距离 <= mindis（危险）时才计算梯度
-  grad[0] = ((1.0 - diff[1]) * (values[1][0] - values[0][0]) + diff[1] * (values[1][1] - values[0][1])) * inv_grid_interval_;
+  // 🔧 只有当距离 <= mindis（危险）时才计算梯度（与原始代码顺序一致）
   grad[1] = (v1 - v0) * inv_grid_interval_;
+  grad[0] = ((1.0 - diff[1]) * (values[1][0] - values[0][0]) + diff[1] * (values[1][1] - values[0][1])) * inv_grid_interval_;
 
   return dist;  // 返回真实距离
 }
