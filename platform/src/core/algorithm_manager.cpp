@@ -10,10 +10,13 @@
 #include "plugin/framework/config_loader.hpp"
 #include "plugin/preprocessing/preprocessing.hpp"
 #include "viz/visualizer_interface.hpp"
+#include "sim/local_simulator.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
 #include <sstream>
+#include <thread>
+#include <atomic>
 
 namespace navsim {
 
@@ -572,5 +575,240 @@ void AlgorithmManager::setupPluginSystem() {
   std::cout << "  Fallback planner: " << planner_plugin_manager_->getFallbackPlannerName() << std::endl;
 }
 
+// ========== 本地仿真集成方法 ==========
 
-} // namespace navsim
+bool AlgorithmManager::initialize_with_simulator(const Config& config) {
+  config_ = config;
+  use_local_simulator_ = true;
+
+  std::cout << "[AlgorithmManager] Initializing with LocalSimulator..." << std::endl;
+
+  // 使用标准初始化流程
+  if (!initialize()) {
+    std::cerr << "[AlgorithmManager] Failed to initialize plugin system" << std::endl;
+    return false;
+  }
+
+  std::cout << "[AlgorithmManager] LocalSimulator mode enabled" << std::endl;
+  return true;
+}
+
+void AlgorithmManager::set_local_simulator(std::shared_ptr<sim::LocalSimulator> simulator) {
+  local_simulator_ = simulator;
+  use_local_simulator_ = true;
+
+  if (local_simulator_) {
+    std::cout << "[AlgorithmManager] LocalSimulator attached successfully" << std::endl;
+  } else {
+    std::cerr << "[AlgorithmManager] Warning: NULL LocalSimulator provided" << std::endl;
+  }
+}
+
+bool AlgorithmManager::run_simulation_loop() {
+  if (!local_simulator_) {
+    std::cerr << "[AlgorithmManager] LocalSimulator not set" << std::endl;
+    return false;
+  }
+
+  if (!use_local_simulator_) {
+    std::cerr << "[AlgorithmManager] Not in LocalSimulator mode" << std::endl;
+    return false;
+  }
+
+  std::cout << "[AlgorithmManager] Starting local simulation loop..." << std::endl;
+  std::cout << "[AlgorithmManager] Press Ctrl+C to stop" << std::endl;
+
+  // 🎨 在仿真循环启动前，渲染几帧加载画面，避免黑屏
+  if (visualizer_) {
+    for (int i = 0; i < 5; ++i) {
+      // 使用 ImGuiVisualizer 的 renderLoadingScreen() 方法
+      // 由于这是私有方法，我们通过 beginFrame/endFrame 来触发渲染
+      visualizer_->beginFrame();
+      visualizer_->showDebugInfo("Status", "Initializing simulation...");
+      visualizer_->endFrame();
+      std::this_thread::sleep_for(std::chrono::milliseconds(16));  // ~60 FPS
+    }
+  }
+
+  // 重置停止标志
+  simulation_should_stop_.store(false);
+
+  // 设置仿真已开始标志（本地仿真模式自动开始）
+  simulation_started_.store(true);
+
+  // 启动仿真
+  local_simulator_->start();
+
+  // 仿真主循环
+  const double target_frequency = 30.0;  // 30Hz 主循环
+  const auto loop_period = std::chrono::duration<double>(1.0 / target_frequency);
+
+  auto last_step_time = std::chrono::steady_clock::now();
+
+  // 🎯 性能监控
+  auto last_fps_update = std::chrono::steady_clock::now();
+  int frame_count = 0;
+  double current_fps = 0.0;
+
+  while (!simulation_should_stop_.load()) {
+    // 🎨 检查可视化窗口是否被关闭
+    if (visualizer_ && visualizer_->shouldClose()) {
+      std::cout << "[AlgorithmManager] Visualizer window closed, stopping simulation..." << std::endl;
+      break;
+    }
+
+    auto current_time = std::chrono::steady_clock::now();
+    auto elapsed = current_time - last_step_time;
+
+    // 控制循环频率
+    if (elapsed >= loop_period) {
+      double dt = std::chrono::duration<double>(elapsed).count();
+
+      // 处理单步仿真
+      if (!process_simulation_step(dt)) {
+        std::cerr << "[AlgorithmManager] Simulation step failed" << std::endl;
+        break;
+      }
+
+      last_step_time = current_time;
+      frame_count++;
+
+      // 🎯 每秒更新一次FPS
+      auto fps_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        current_time - last_fps_update).count();
+      if (fps_elapsed >= 1000) {
+        current_fps = frame_count * 1000.0 / fps_elapsed;
+
+        if (visualizer_) {
+          std::ostringstream fps_stream;
+          fps_stream << std::fixed << std::setprecision(1) << current_fps << " Hz";
+          visualizer_->showDebugInfo("Loop Frequency", fps_stream.str());
+        }
+
+        frame_count = 0;
+        last_fps_update = current_time;
+      }
+    }
+
+    // 短暂休眠避免CPU占用过高
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  std::cout << "[AlgorithmManager] Simulation loop ended" << std::endl;
+  return true;
+}
+
+void AlgorithmManager::stop_simulation_loop() {
+  simulation_should_stop_.store(true);
+  std::cout << "[AlgorithmManager] Stopping simulation loop..." << std::endl;
+}
+
+bool AlgorithmManager::process_simulation_step(double dt) {
+  if (!local_simulator_) {
+    return false;
+  }
+
+  // 1. 获取当前世界状态（在仿真步进之前）
+  const auto& world_state = local_simulator_->get_world_state();
+
+  // 🕐 更新仿真时间到可视化器
+  if (visualizer_) {
+    double sim_time = local_simulator_->get_simulation_time();
+    std::ostringstream time_stream;
+    time_stream << std::fixed << std::setprecision(3) << sim_time << "s";
+    visualizer_->showDebugInfo("Simulation Time", time_stream.str());
+
+    // 同时显示帧ID
+    visualizer_->showDebugInfo("Frame ID", std::to_string(local_simulator_->get_frame_id()));
+  }
+
+  // 2. 转换为protobuf格式
+  auto world_tick = local_simulator_->to_world_tick();
+
+  // 3. 运行算法处理
+  proto::PlanUpdate plan_update;
+  proto::EgoCmd ego_cmd;
+  auto deadline = std::chrono::milliseconds(static_cast<int>(config_.max_computation_time_ms));
+
+  bool planning_success = process(world_tick, deadline, plan_update, ego_cmd);
+
+  // 4. 将规划结果应用到仿真器
+  if (planning_success && plan_update.trajectory_size() > 0) {
+    // 计算当前应该跟踪的轨迹点索引
+    // 使用简单的时间索引：假设轨迹点间隔为 dt
+    static double accumulated_time = 0.0;
+    accumulated_time += dt;
+
+    // 根据累积时间找到对应的轨迹点
+    int target_index = 0;
+    double min_time_diff = std::abs(plan_update.trajectory(0).t() - accumulated_time);
+
+    for (int i = 1; i < plan_update.trajectory_size(); ++i) {
+      double time_diff = std::abs(plan_update.trajectory(i).t() - accumulated_time);
+      if (time_diff < min_time_diff) {
+        min_time_diff = time_diff;
+        target_index = i;
+      } else {
+        // 时间差开始增大，说明已经找到最接近的点
+        break;
+      }
+    }
+
+    // 限制索引范围，避免跟踪太远的点
+    // 使用前瞻时间：0.1秒（约3个仿真步）
+    const double lookahead_time = 0.1;
+    int lookahead_index = 0;
+    for (int i = 0; i < plan_update.trajectory_size(); ++i) {
+      if (plan_update.trajectory(i).t() >= lookahead_time) {
+        lookahead_index = i;
+        break;
+      }
+    }
+
+    // 使用前瞻点或当前时间点（取较大者）
+    int control_index = std::max(lookahead_index, std::min(target_index, 10));
+
+    const auto& control_point = plan_update.trajectory(control_index);
+
+    // 更新自车位置和速度（简单的轨迹跟踪）
+    planning::Pose2d new_pose;
+    new_pose.x = control_point.x();
+    new_pose.y = control_point.y();
+    new_pose.yaw = control_point.yaw();
+
+    planning::Twist2d new_twist;
+    new_twist.vx = control_point.vx();
+    new_twist.vy = control_point.vy();
+    new_twist.omega = control_point.omega();
+
+    // 应用到仿真器
+    local_simulator_->set_ego_pose(new_pose);
+    local_simulator_->set_ego_twist(new_twist);
+
+    if (config_.verbose_logging && world_state.frame_id % 30 == 0) {  // 每秒打印一次
+      std::cout << "[AlgorithmManager] Step " << world_state.frame_id
+                << ": Planning success, " << plan_update.trajectory_size()
+                << " trajectory points generated" << std::endl;
+      std::cout << "  Control index: " << control_index
+                << " (t=" << control_point.t() << "s, accumulated_time="
+                << accumulated_time << "s)" << std::endl;
+      std::cout << "  Ego pose: (" << new_pose.x << ", " << new_pose.y
+                << ", " << new_pose.yaw << ")" << std::endl;
+      std::cout << "  Ego twist: (" << new_twist.vx << ", " << new_twist.vy
+                << ", " << new_twist.omega << ")" << std::endl;
+    }
+  }
+
+  // 5. 执行仿真步进（应用新的状态）
+  if (!local_simulator_->step(dt)) {
+    std::cerr << "[AlgorithmManager] Simulator step failed" << std::endl;
+    return false;
+  }
+
+  // 注意：本地仿真模式不发送数据到 WebSocket
+  // WebSocket 在线模式会在 run_websocket_mode() 中处理数据发送
+
+  return true;
+}
+
+}  // namespace navsim

@@ -115,6 +115,7 @@ bool ImGuiVisualizer::initialize() {
   // std::cout << "[ImGuiVisualizer] Window size: " << config_.window_width << "x" << config_.window_height << std::endl;
   // std::cout << "[ImGuiVisualizer] Renderer: " << renderer_info.name << std::endl;
   // std::cout << "[ImGuiVisualizer] Using SDL_Renderer (no OpenGL dependency)" << std::endl;
+
   return true;
 }
 
@@ -456,8 +457,11 @@ void ImGuiVisualizer::endFrame() {
 }
 
 void ImGuiVisualizer::renderScene() {
-  // static int render_count = 0;
-  // if (render_count++ % 60 == 0) {
+  static int render_count = 0;
+  static auto first_render_time = std::chrono::steady_clock::now();
+  render_count++;
+
+  // if (render_count % 60 == 0) {
   //   std::cout << "[Viz] renderScene called #" << render_count
   //             << ", has_world_data=" << has_world_data_
   //             << ", has_planning_result=" << has_planning_result_ << std::endl;
@@ -467,7 +471,14 @@ void ImGuiVisualizer::renderScene() {
   ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowSize(ImVec2(1000, 900), ImGuiCond_FirstUseEver);
 
-  ImGui::Begin("Scene View", nullptr, ImGuiWindowFlags_NoCollapse);
+  // 🕐 在窗口标题显示仿真时间
+  std::string window_title = "Scene View";
+  auto it = debug_info_.find("Simulation Time");
+  if (it != debug_info_.end()) {
+    window_title = "Scene View - Sim Time: " + it->second;
+  }
+
+  ImGui::Begin(window_title.c_str(), nullptr, ImGuiWindowFlags_NoCollapse);
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
   ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
@@ -484,12 +495,59 @@ void ImGuiVisualizer::renderScene() {
                            ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
                            IM_COL32(20, 20, 20, 255));
 
+  // 🎨 在前10秒或没有数据时，显示明显的加载画面
   auto now = std::chrono::steady_clock::now();
-  if (!has_world_data_) {
+  auto elapsed_since_first_render = std::chrono::duration_cast<std::chrono::seconds>(
+    now - first_render_time).count();
+
+  bool show_loading = !has_world_data_ || !has_planning_result_ || elapsed_since_first_render < 2;
+
+  if (show_loading) {
+    // 居中显示加载信息
+    ImVec2 center(canvas_pos.x + canvas_size.x / 2.0f, canvas_pos.y + canvas_size.y / 2.0f);
+
+    const char* loading_text = "Initializing NavSim Local...";
+    ImVec2 text_size = ImGui::CalcTextSize(loading_text);
+    draw_list->AddText(
+      ImVec2(center.x - text_size.x / 2.0f, center.y - 50.0f),
+      IM_COL32(100, 255, 100, 255),  // 绿色
+      loading_text
+    );
+
+    // 显示状态信息
+    std::string status_text;
+    if (!has_world_data_) {
+      status_text = "Waiting for world data...";
+    } else if (!has_planning_result_) {
+      status_text = "Running first planning cycle...";
+    } else {
+      status_text = "Starting simulation...";
+    }
+
+    ImVec2 status_size = ImGui::CalcTextSize(status_text.c_str());
+    draw_list->AddText(
+      ImVec2(center.x - status_size.x / 2.0f, center.y),
+      IM_COL32(200, 200, 200, 255),  // 灰色
+      status_text.c_str()
+    );
+
+    // 绘制旋转的加载指示器
+    float angle = render_count * 0.1f;
+    for (int i = 0; i < 8; ++i) {
+      float a = angle + i * 3.14159f / 4.0f;
+      float x = center.x + cos(a) * 30.0f;
+      float y = center.y + 80.0f + sin(a) * 30.0f;
+      float alpha = 255.0f * (1.0f - i / 8.0f);
+      draw_list->AddCircleFilled(ImVec2(x, y), 5.0f, IM_COL32(100, 255, 100, (int)alpha));
+    }
+  }
+
+  // 如果已经有数据，继续显示小提示
+  if (!show_loading && !has_world_data_) {
     draw_list->AddText(ImVec2(canvas_pos.x + 20.0f, canvas_pos.y + 20.0f),
                        IM_COL32(200, 200, 200, 255),
                        "Waiting for world data...");
-  } else {
+  } else if (!show_loading && has_world_data_) {
     auto stale_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_world_update_).count();
     if (stale_ms > 1000) {
       std::ostringstream oss;
@@ -499,14 +557,6 @@ void ImGuiVisualizer::renderScene() {
                          IM_COL32(255, 200, 0, 255),
                          oss.str().c_str());
     }
-  }
-
-  // 测试绘制 - 仅在尚未收到数据时提示
-  if (!has_world_data_) {
-    ImVec2 center(canvas_pos.x + canvas_size.x / 2.0f, canvas_pos.y + canvas_size.y / 2.0f);
-    draw_list->AddCircleFilled(center, 50.0f, IM_COL32(255, 255, 255, 255));
-    draw_list->AddText(ImVec2(center.x - 50, center.y - 100), IM_COL32(255, 255, 0, 255),
-                       "TEST CIRCLE - If you see this, rendering works!");
   }
 
   // 🎨 绘制网格（可选）
@@ -1150,30 +1200,35 @@ void ImGuiVisualizer::renderScene() {
     }
   }
 
-  // 🎨 5. 绘制规划轨迹（已禁用 - 只显示调试路径）
-  // if (viz_options_.show_trajectory) {
-  //   // static int traj_log_count = 0;
-  //   // if (traj_log_count++ % 60 == 0 && trajectory_.size() > 1) {
-  //   //   std::cout << "[Viz]   Drawing trajectory with " << trajectory_.size() << " points" << std::endl;
-  //   //   auto test_p1 = worldToScreen(trajectory_[0].pose.x, trajectory_[0].pose.y);
-  //   //   auto test_p2 = worldToScreen(trajectory_[1].pose.x, trajectory_[1].pose.y);
-  //   //   std::cout << "[Viz]     First segment: (" << test_p1.x << "," << test_p1.y
-  //   //             << ") -> (" << test_p2.x << "," << test_p2.y << ")" << std::endl;
-  //   // }
+  // 🎨 5. 绘制规划轨迹（主轨迹 - 青色粗线）
+  if (viz_options_.show_trajectory && trajectory_.size() > 1) {
+    static int traj_log_count = 0;
+    if (traj_log_count++ % 60 == 0) {
+      std::cout << "[Viz] Drawing trajectory with " << trajectory_.size() << " points" << std::endl;
+      std::cout << "[Viz]   Ego position: (" << ego_.pose.x << ", " << ego_.pose.y << ")" << std::endl;
+      std::cout << "[Viz]   First 5 trajectory points:" << std::endl;
+      for (size_t i = 0; i < std::min(size_t(5), trajectory_.size()); ++i) {
+        std::cout << "[Viz]     Point[" << i << "]: ("
+                  << trajectory_[i].pose.x << ", "
+                  << trajectory_[i].pose.y << ")" << std::endl;
+      }
+      auto test_p1 = worldToScreen(trajectory_[0].pose.x, trajectory_[0].pose.y);
+      auto test_p2 = worldToScreen(trajectory_[1].pose.x, trajectory_[1].pose.y);
+      std::cout << "[Viz]   First segment screen coords: (" << test_p1.x << "," << test_p1.y
+                << ") -> (" << test_p2.x << "," << test_p2.y << ")" << std::endl;
+    }
 
-  //   if (trajectory_.size() > 1) {
-  //     for (size_t i = 1; i < trajectory_.size(); ++i) {
-  //       auto p1 = worldToScreen(trajectory_[i-1].pose.x, trajectory_[i-1].pose.y);
-  //       auto p2 = worldToScreen(trajectory_[i].pose.x, trajectory_[i].pose.y);
-  //       draw_list->AddLine(
-  //         ImVec2(p1.x, p1.y),
-  //         ImVec2(p2.x, p2.y),
-  //         IM_COL32(0, 255, 255, 255),  // 青色
-  //         3.0f
-  //       );
-  //     }
-  //   }
-  // }  // 🎨 结束轨迹绘制
+    for (size_t i = 1; i < trajectory_.size(); ++i) {
+      auto p1 = worldToScreen(trajectory_[i-1].pose.x, trajectory_[i-1].pose.y);
+      auto p2 = worldToScreen(trajectory_[i].pose.x, trajectory_[i].pose.y);
+      draw_list->AddLine(
+        ImVec2(p1.x, p1.y),
+        ImVec2(p2.x, p2.y),
+        IM_COL32(0, 255, 255, 255),  // 青色
+        3.0f
+      );
+    }
+  }  // 🎨 结束轨迹绘制
 
   // 🎨 6. 绘制目标点（可选）
   if (viz_options_.show_goal) {
@@ -1560,6 +1615,62 @@ bool ImGuiVisualizer::shouldClose() const {
   return should_close_;
 }
 
+void ImGuiVisualizer::renderLoadingScreen() {
+  if (!initialized_) return;
+
+  // 渲染单帧"加载中"画面
+  // 处理事件
+  SDL_Event event;
+  while (SDL_PollEvent(&event)) {
+    if (event.type == SDL_QUIT) {
+      should_close_ = true;
+    }
+  }
+
+  // 开始新的 ImGui 帧
+  ImGui_ImplSDLRenderer2_NewFrame();
+  ImGui_ImplSDL2_NewFrame();
+  ImGui::NewFrame();
+
+  // 创建全屏窗口
+  ImGui::SetNextWindowPos(ImVec2(0, 0));
+  ImGui::SetNextWindowSize(ImVec2(config_.window_width, config_.window_height));
+  ImGui::Begin("Loading", nullptr,
+               ImGuiWindowFlags_NoTitleBar |
+               ImGuiWindowFlags_NoResize |
+               ImGuiWindowFlags_NoMove |
+               ImGuiWindowFlags_NoCollapse);
+
+  // 居中显示"加载中"文本
+  ImVec2 window_size = ImGui::GetWindowSize();
+  const char* loading_text = "Initializing NavSim Local...";
+  const char* status_text = "Loading scenario and plugins...";
+
+  ImVec2 text_size = ImGui::CalcTextSize(loading_text);
+  ImVec2 status_size = ImGui::CalcTextSize(status_text);
+
+  ImGui::SetCursorPos(ImVec2(
+    (window_size.x - text_size.x) * 0.5f,
+    (window_size.y - text_size.y) * 0.5f - 30.0f
+  ));
+  ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", loading_text);
+
+  ImGui::SetCursorPos(ImVec2(
+    (window_size.x - status_size.x) * 0.5f,
+    (window_size.y - status_size.y) * 0.5f + 10.0f
+  ));
+  ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", status_text);
+
+  ImGui::End();
+
+  // 渲染
+  ImGui::Render();
+  SDL_SetRenderDrawColor(sdl_renderer_, 20, 20, 24, 255);
+  SDL_RenderClear(sdl_renderer_);
+  ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), sdl_renderer_);
+  SDL_RenderPresent(sdl_renderer_);
+}
+
 void ImGuiVisualizer::shutdown() {
   if (!initialized_) return;
 
@@ -1643,7 +1754,9 @@ void ImGuiVisualizer::renderLegendPanel() {
   ImGui::SameLine();
   ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "[Red]");
 
-  // 已移除 "Show Trajectory" - 只显示调试路径
+  ImGui::Checkbox("Show Main Trajectory", &viz_options_.show_trajectory);
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Cyan - Main Planning Result]");
 
   // Debug paths for JPS planner
   ImGui::Checkbox("Show Debug Paths", &viz_options_.show_debug_paths);

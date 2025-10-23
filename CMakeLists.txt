@@ -136,6 +136,7 @@ set(NAVSIM_PLANNING_SOURCES
     platform/src/core/websocket_visualizer.cpp
     platform/src/core/scenario_loader.cpp
     platform/src/viz/visualizer_factory.cpp
+    platform/src/sim/local_simulator.cpp
 )
 
 # 添加可视化源文件（如果启用）
@@ -247,3 +248,35 @@ target_link_libraries(test_esdf_map
       ${EIGEN3_LIBRARIES})
 
 target_compile_features(test_esdf_map PRIVATE cxx_std_17)
+
+# ========== GoogleTest for LocalSimulator tests ==========
+find_package(GTest QUIET)
+if(GTest_FOUND)
+    message(STATUS "GoogleTest found, enabling LocalSimulator tests")
+
+    add_executable(test_local_simulator
+        tests/test_local_simulator.cpp)
+
+    target_include_directories(test_local_simulator
+        PRIVATE
+          platform/include
+          ${CMAKE_CURRENT_BINARY_DIR}
+          third_party/nlohmann)
+
+    target_link_libraries(test_local_simulator
+        PRIVATE
+          navsim_planning
+          navsim_proto
+          ${Protobuf_LIBRARIES}
+          GTest::GTest
+          GTest::Main)
+
+    target_compile_features(test_local_simulator PRIVATE cxx_std_17)
+
+    # 添加到测试套件
+    enable_testing()
+    add_test(NAME LocalSimulatorTest COMMAND test_local_simulator)
+else()
+    message(STATUS "GoogleTest not found, skipping LocalSimulator tests")
+    message(STATUS "To install: sudo apt-get install libgtest-dev")
+endif()

@@ -526,13 +526,15 @@ nlohmann::json ScenarioLoader::convertOnlineToInternal(const nlohmann::json& onl
 
   // 转换自车信息
   nlohmann::json ego;
-  if (online_json.contains("startPose")) {
+  if (online_json.contains("startPose") && !online_json["startPose"].is_null()) {
+    const auto& start_pose = online_json["startPose"];
     ego["pose"] = {
-      {"x", online_json["startPose"].value("x", 0.0)},
-      {"y", online_json["startPose"].value("y", 0.0)},
-      {"yaw", online_json["startPose"].value("yaw", 0.0)}
+      {"x", start_pose.value("x", 0.0)},
+      {"y", start_pose.value("y", 0.0)},
+      {"yaw", start_pose.value("yaw", 0.0)}
     };
   } else {
+    // startPose 为 null 或不存在时，使用默认起点 (0, 0, 0)
     ego["pose"] = {{"x", 0.0}, {"y", 0.0}, {"yaw", 0.0}};
   }
 
@@ -617,7 +619,7 @@ nlohmann::json ScenarioLoader::convertOnlineToInternal(const nlohmann::json& onl
 
   // 转换任务目标
   nlohmann::json task;
-  if (online_json.contains("goalPose")) {
+  if (online_json.contains("goalPose") && !online_json["goalPose"].is_null()) {
     const auto& goal = online_json["goalPose"];
     task["goal_pose"] = {
       {"x", goal.value("x", 20.0)},
@@ -626,7 +628,7 @@ nlohmann::json ScenarioLoader::convertOnlineToInternal(const nlohmann::json& onl
     };
 
     // 提取容差
-    if (goal.contains("tol")) {
+    if (goal.contains("tol") && !goal["tol"].is_null()) {
       task["tolerance"] = {
         {"position", goal["tol"].value("pos", 0.5)},
         {"yaw", goal["tol"].value("yaw", 0.2)}
@@ -635,6 +637,7 @@ nlohmann::json ScenarioLoader::convertOnlineToInternal(const nlohmann::json& onl
       task["tolerance"] = {{"position", 0.5}, {"yaw", 0.2}};
     }
   } else {
+    // goalPose 为 null 或不存在时，使用默认目标点
     task["goal_pose"] = {{"x", 20.0}, {"y", 0.0}, {"yaw", 0.0}};
     task["tolerance"] = {{"position", 0.5}, {"yaw", 0.2}};
   }

@@ -40,6 +40,9 @@ class Bridge {
   // 发送 plan 消息（不发送 ego_cmd）
   void publish(const proto::PlanUpdate& plan, double compute_ms);
 
+  // 发送 world_tick 消息（用于本地仿真模式）
+  void send_world_tick(const proto::WorldTick& world_tick);
+
   // 发送心跳消息
   void send_heartbeat(double loop_hz);
 

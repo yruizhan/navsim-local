@@ -17,6 +17,9 @@ namespace plugin {
 namespace viz {
   class IVisualizer;
 }
+namespace sim {
+  class LocalSimulator;
+}
 }
 
 namespace navsim {
@@ -63,6 +66,19 @@ public:
   bool initialize();
 
   /**
+   * @brief 使用本地仿真器初始化算法模块
+   * @param config 算法配置
+   * @return 是否成功
+   */
+  bool initialize_with_simulator(const Config& config);
+
+  /**
+   * @brief 设置本地仿真器
+   * @param simulator 仿真器智能指针
+   */
+  void set_local_simulator(std::shared_ptr<sim::LocalSimulator> simulator);
+
+  /**
    * @brief 处理世界状态，生成规划结果
    * @param world_tick 输入的世界状态
    * @param deadline 规划截止时间
@@ -74,6 +90,25 @@ public:
                std::chrono::milliseconds deadline,
                proto::PlanUpdate& plan_update,
                proto::EgoCmd& ego_cmd);
+
+  /**
+   * @brief 运行本地仿真循环（新的主循环）
+   * 集成本地仿真器，在同一进程内运行仿真和算法
+   * @return 是否成功启动
+   */
+  bool run_simulation_loop();
+
+  /**
+   * @brief 停止仿真循环
+   */
+  void stop_simulation_loop();
+
+  /**
+   * @brief 处理单步仿真（本地模式）
+   * @param dt 仿真时间步长
+   * @return 是否成功
+   */
+  bool process_simulation_step(double dt);
 
   /**
    * @brief 获取算法统计信息
@@ -137,6 +172,10 @@ private:
   std::unique_ptr<plugin::PerceptionPluginManager> perception_plugin_manager_;
   std::unique_ptr<plugin::PlannerPluginManager> planner_plugin_manager_;
 
+  // 本地仿真器集成
+  std::shared_ptr<sim::LocalSimulator> local_simulator_;
+  bool use_local_simulator_ = false;
+
   // Bridge引用（用于感知调试数据发送）
   Bridge* bridge_ = nullptr;
 
@@ -148,6 +187,7 @@ private:
 
   // 仿真状态
   std::atomic<bool> simulation_started_{false};
+  std::atomic<bool> simulation_should_stop_{false};
 
   // 内部函数
   void setupPluginSystem();

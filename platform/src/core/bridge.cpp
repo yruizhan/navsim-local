@@ -71,6 +71,7 @@ class Bridge::Impl {
 
   // JSON ↔ Protobuf 转换（后续 Phase 3 实现）
   bool json_to_world_tick(const nlohmann::json& j, proto::WorldTick* tick, double* delay_ms);
+  nlohmann::json world_tick_to_json(const proto::WorldTick& tick);
   nlohmann::json plan_to_json(const proto::PlanUpdate& plan, double compute_ms);
   nlohmann::json heartbeat_to_json(double loop_hz, double compute_ms_p50);
   nlohmann::json context_to_json(const planning::PlanningContext& context);
@@ -167,6 +168,27 @@ void Bridge::publish(const proto::PlanUpdate& plan, double compute_ms) {
 
   std::cout << "[Bridge] Sent plan with " << plan.trajectory_size() << " points, compute_ms="
             << std::fixed << std::setprecision(1) << compute_ms << "ms" << std::endl;
+}
+
+void Bridge::send_world_tick(const proto::WorldTick& world_tick) {
+  // 断线时直接丢弃，不阻塞
+  if (!impl_->connected_) {
+    return;
+  }
+
+  // 转换为 JSON
+  nlohmann::json j = impl_->world_tick_to_json(world_tick);
+
+  // 发送
+  std::string msg = j.dump();
+  impl_->ws_.send(msg);
+  impl_->ws_tx_++;
+
+  // 只在verbose模式下打印（避免刷屏）
+  static int send_count = 0;
+  if (++send_count % 30 == 0) {  // 每30帧打印一次
+    std::cout << "[Bridge] Sent world_tick #" << world_tick.tick_id() << std::endl;
+  }
 }
 
 void Bridge::send_heartbeat(double loop_hz) {
@@ -871,6 +893,192 @@ nlohmann::json Bridge::Impl::context_to_json(const planning::PlanningContext& co
     });
   }
   data["dynamic_obstacles"] = dyn_data;
+
+  j["data"] = data;
+  return j;
+}
+
+nlohmann::json Bridge::Impl::world_tick_to_json(const proto::WorldTick& tick) {
+  nlohmann::json j;
+
+  // Topic
+  j["topic"] = "/room/" + room_id_ + "/world_tick";
+
+  // Data
+  nlohmann::json data;
+  data["schema"] = "navsim.v1";
+  data["tick_id"] = tick.tick_id();
+  data["stamp"] = tick.stamp();
+
+  // Ego
+  if (tick.has_ego()) {
+    const auto& ego = tick.ego();
+    nlohmann::json ego_json;
+
+    if (ego.has_pose()) {
+      ego_json["pose"] = {
+        {"x", ego.pose().x()},
+        {"y", ego.pose().y()},
+        {"yaw", ego.pose().yaw()}
+      };
+    }
+
+    if (ego.has_twist()) {
+      ego_json["twist"] = {
+        {"vx", ego.twist().vx()},
+        {"vy", ego.twist().vy()},
+        {"omega", ego.twist().omega()}
+      };
+    }
+
+    data["ego"] = ego_json;
+  }
+
+  // Goal
+  if (tick.has_goal()) {
+    const auto& goal = tick.goal();
+    nlohmann::json goal_json;
+
+    if (goal.has_pose()) {
+      goal_json["pose"] = {
+        {"x", goal.pose().x()},
+        {"y", goal.pose().y()},
+        {"yaw", goal.pose().yaw()}
+      };
+    }
+
+    if (goal.has_tol()) {
+      goal_json["tol"] = {
+        {"pos", goal.tol().pos()},
+        {"yaw", goal.tol().yaw()}
+      };
+    }
+
+    data["goal"] = goal_json;
+  }
+
+  // Chassis
+  if (tick.has_chassis()) {
+    const auto& chassis = tick.chassis();
+    nlohmann::json chassis_json;
+
+    chassis_json["model"] = chassis.model();
+    chassis_json["wheelbase"] = chassis.wheelbase();
+    chassis_json["track_width"] = chassis.track_width();
+
+    if (chassis.has_limits()) {
+      chassis_json["limits"] = {
+        {"v_max", chassis.limits().v_max()},
+        {"a_max", chassis.limits().a_max()},
+        {"omega_max", chassis.limits().omega_max()},
+        {"steer_max", chassis.limits().steer_max()}
+      };
+    }
+
+    if (chassis.has_geometry()) {
+      chassis_json["geometry"] = {
+        {"body_length", chassis.geometry().body_length()},
+        {"body_width", chassis.geometry().body_width()},
+        {"body_height", chassis.geometry().body_height()},
+        {"wheel_radius", chassis.geometry().wheel_radius()},
+        {"wheel_width", chassis.geometry().wheel_width()},
+        {"front_overhang", chassis.geometry().front_overhang()},
+        {"rear_overhang", chassis.geometry().rear_overhang()},
+        {"caster_count", chassis.geometry().caster_count()},
+        {"track_width_ratio", chassis.geometry().track_width_ratio()}
+      };
+    }
+
+    data["chassis"] = chassis_json;
+  }
+
+  // Static map
+  if (tick.has_static_map()) {
+    const auto& static_map = tick.static_map();
+    nlohmann::json map_json;
+    nlohmann::json static_json;
+
+    // Circles
+    nlohmann::json circles = nlohmann::json::array();
+    for (const auto& circle : static_map.circles()) {
+      circles.push_back({
+        {"x", circle.x()},
+        {"y", circle.y()},
+        {"r", circle.r()}
+      });
+    }
+    static_json["circles"] = circles;
+
+    // Polygons
+    nlohmann::json polygons = nlohmann::json::array();
+    for (const auto& polygon : static_map.polygons()) {
+      nlohmann::json poly_json;
+      nlohmann::json points = nlohmann::json::array();
+      for (const auto& point : polygon.points()) {
+        points.push_back({
+          {"x", point.x()},
+          {"y", point.y()},
+          {"yaw", point.yaw()}
+        });
+      }
+      poly_json["points"] = points;
+      polygons.push_back(poly_json);
+    }
+    static_json["polygons"] = polygons;
+
+    // Origin and resolution
+    if (static_map.has_origin()) {
+      static_json["origin"] = {
+        {"x", static_map.origin().x()},
+        {"y", static_map.origin().y()}
+      };
+    }
+    static_json["resolution"] = static_map.resolution();
+
+    map_json["static"] = static_json;
+    data["map"] = map_json;
+  }
+
+  // Dynamic obstacles
+  nlohmann::json dynamic = nlohmann::json::array();
+  for (const auto& obs : tick.dynamic_obstacles()) {
+    nlohmann::json obs_json;
+
+    obs_json["id"] = obs.id();
+    obs_json["model"] = obs.model();
+
+    // Shape
+    if (obs.has_shape()) {
+      nlohmann::json shape_json;
+      if (obs.shape().has_circle()) {
+        shape_json["type"] = "circle";
+        shape_json["r"] = obs.shape().circle().r();
+      } else if (obs.shape().has_rectangle()) {
+        shape_json["type"] = "rect";
+        shape_json["w"] = obs.shape().rectangle().w();
+        shape_json["h"] = obs.shape().rectangle().h();
+        shape_json["yaw"] = obs.shape().rectangle().yaw();
+      }
+      obs_json["shape"] = shape_json;
+    }
+
+    // State (pose + twist)
+    nlohmann::json state_json;
+    if (obs.has_pose()) {
+      state_json["x"] = obs.pose().x();
+      state_json["y"] = obs.pose().y();
+      state_json["yaw"] = obs.pose().yaw();
+    }
+    if (obs.has_twist()) {
+      state_json["vx"] = obs.twist().vx();
+      state_json["vy"] = obs.twist().vy();
+      state_json["omega"] = obs.twist().omega();
+    }
+    obs_json["state"] = state_json;
+
+    dynamic.push_back(obs_json);
+  }
+  data["dynamic"] = dynamic;
 
   j["data"] = data;
   return j;
