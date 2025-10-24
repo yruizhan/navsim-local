@@ -82,14 +82,23 @@ bool ESDFBuilderPlugin::process(const plugin::PerceptionInput& input, planning::
   origin.y = input.ego.pose.y - map_height_ / 2.0;
 
   // 1. 构建占据栅格
+  auto grid_start = std::chrono::high_resolution_clock::now();
   buildOccupancyGrid(input, origin);
+  auto grid_end = std::chrono::high_resolution_clock::now();
+  double grid_time_ms = std::chrono::duration<double, std::milli>(grid_end - grid_start).count();
 
   // 2. 更新 ESDFMap
   Eigen::Vector2d origin_eigen(origin.x, origin.y);
+  auto build_start = std::chrono::high_resolution_clock::now();
   esdf_map_->buildFromOccupancyGrid(occupancy_grid_, origin_eigen);
+  auto build_end = std::chrono::high_resolution_clock::now();
+  double build_time_ms = std::chrono::duration<double, std::milli>(build_end - build_start).count();
 
   // 3. 计算 ESDF
+  auto esdf_start = std::chrono::high_resolution_clock::now();
   esdf_map_->computeESDF();
+  auto esdf_end = std::chrono::high_resolution_clock::now();
+  double esdf_time_ms = std::chrono::duration<double, std::milli>(esdf_end - esdf_start).count();
 
   // 4. 创建 NavSim 格式的 ESDF 地图（用于规划器和可视化）
   auto esdf_map_navsim = std::make_unique<planning::ESDFMap>();
@@ -133,9 +142,14 @@ bool ESDFBuilderPlugin::process(const plugin::PerceptionInput& input, planning::
     max_dist = std::max(max_dist, abs_dist);
   }
 
-  // 每 60 帧打印一次 ESDF 统计信息
+  // 每 60 帧打印一次 ESDF 统计信息和计时
   static int esdf_frame_count = 0;
   if (++esdf_frame_count % 60 == 0) {
+    std::cout << "[ESDFBuilder] ⏱️  Timing breakdown:" << std::endl;
+    std::cout << "  - Build occupancy grid: " << grid_time_ms << " ms" << std::endl;
+    std::cout << "  - Build ESDF map: " << build_time_ms << " ms" << std::endl;
+    std::cout << "  - Compute ESDF: " << esdf_time_ms << " ms" << std::endl;
+    std::cout << "  - Total: " << (grid_time_ms + build_time_ms + esdf_time_ms) << " ms" << std::endl;
     std::cout << "[ESDFBuilder] ESDF stats:\n"
               << "  Occupied cells: " << occupied_count << "\n"
               << "  Distance < 0.5m:  " << count_0_05 << " cells\n"
