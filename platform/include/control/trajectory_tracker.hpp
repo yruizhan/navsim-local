@@ -50,6 +50,7 @@ struct TrackingState {
     size_t current_segment = 0;
     plugin::TrajectoryPoint target_point;
     plugin::TrajectoryPoint actual_point;
+    bool target_is_reverse = false;
     TrackingQualityMetrics quality;
 };
 
@@ -85,6 +86,13 @@ public:
         double max_acceleration = 2.0;         // 最大加速度 (m/s²)
         double max_angular_velocity = 2.0;     // 最大角速度 (rad/s)
         double max_jerk = 5.0;                 // 最大jerk (m/s³)
+
+        // 倒车支持
+        bool enable_reverse_tracking = true;       // 启用倒车跟踪
+        double reverse_detection_threshold = 0.05; // 判定倒车的速度阈值 (m/s)
+        double reverse_lookahead_time = 0.2;       // 倒车前瞻时间 (s)
+        double reverse_lookahead_distance = 0.5;   // 倒车前瞻距离 (m)
+        double max_reverse_velocity = 1.0;         // 最大倒车速度 (m/s)
     };
 
 public:
@@ -114,7 +122,13 @@ public:
     /**
      * @brief 从protobuf格式设置轨迹
      */
-    void setTrajectoryFromProto(const proto::PlanUpdate& plan_update);
+    void setTrajectoryFromProto(const proto::PlanUpdate& plan_update,
+                                double trajectory_start_time = 0.0);
+
+    /**
+     * @brief 设置轨迹的起始仿真时间
+     */
+    void setTrajectoryStartTime(double start_time);
 
     /**
      * @brief 检查是否有有效轨迹
@@ -196,6 +210,11 @@ public:
      */
     double getCompletionPercentage(double sim_time) const;
 
+    /**
+     * @brief 当前轨迹是否包含倒车片段
+     */
+    bool hasReverseSegments() const { return has_reverse_segments_; }
+
 private:
     // ========== 内部方法 ==========
 
@@ -212,7 +231,7 @@ private:
     /**
      * @brief 前瞻控制策略
      */
-    planning::Twist2d lookaheadControl(double sim_time);
+    planning::Twist2d lookaheadControl(double trajectory_time);
 
     /**
      * @brief 查找最近的轨迹点
@@ -224,7 +243,7 @@ private:
      */
     plugin::TrajectoryPoint calculateLookaheadTarget(
         const planning::Pose2d& current_pose,
-        double sim_time) const;
+        double trajectory_time) const;
 
     /**
      * @brief 应用平滑滤波
@@ -265,9 +284,43 @@ private:
      */
     double normalizeAngle(double angle) const;
 
+    /**
+     * @brief 将仿真时间转换为轨迹时间
+     */
+    double toTrajectoryTime(double sim_time) const;
+
+    /**
+     * @brief 获取指定轨迹时间的目标状态
+     */
+    plugin::TrajectoryPoint getTargetStateAtTrajectoryTime(double trajectory_time) const;
+
+    /**
+     * @brief 判断给定时间是否处于倒车片段
+     */
+    bool isReverseAtTime(double trajectory_time) const;
+
+    /**
+     * @brief 判断指定索引是否为倒车片段
+     */
+    bool isReverseSegment(size_t index) const;
+
+    /**
+     * @brief 获取指定时间的轨迹路径长度
+     */
+    double getPathLengthAt(double trajectory_time) const;
+
+    /**
+     * @brief 获取指定索引对应的修正航向
+     */
+    double getEffectiveYaw(size_t index) const;
+
 private:
     Config config_;
     std::vector<plugin::TrajectoryPoint> trajectory_;
+    std::vector<bool> reverse_flags_;
+    std::vector<double> effective_yaws_;
+    bool has_reverse_segments_ = false;
+    double total_path_length_ = 0.0;
     TrackingState tracking_state_;
 
     // 滤波和历史数据
@@ -277,6 +330,8 @@ private:
 
     // 时间管理
     std::chrono::steady_clock::time_point last_update_time_;
+    double trajectory_start_sim_time_ = 0.0;
+    bool has_start_time_ = false;
 
     // 初始化标志
     bool initialized_ = false;

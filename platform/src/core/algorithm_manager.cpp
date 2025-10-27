@@ -1037,8 +1037,9 @@ bool AlgorithmManager::process_simulation_step(double dt) {
 
     // 🚗 使用改进的轨迹跟踪器
 
-    // 设置新轨迹到跟踪器
-    trajectory_tracker_->setTrajectoryFromProto(plan_update);
+    // 获取当前仿真时间并设置新轨迹
+    double current_sim_time = local_simulator_->get_simulation_time();
+    trajectory_tracker_->setTrajectoryFromProto(plan_update, current_sim_time);
 
     // 🔍 轨迹设置调试信息
     if (config_.verbose_logging && world_state.frame_id % 60 == 0) {  // 每2秒打印一次
@@ -1053,9 +1054,6 @@ bool AlgorithmManager::process_simulation_step(double dt) {
       std::cout << "  跟踪器轨迹时长: " << trajectory_tracker_->getTrajectoryDuration() << " s" << std::endl;
       std::cout << "  跟踪器有效轨迹: " << (trajectory_tracker_->hasValidTrajectory() ? "是" : "否") << std::endl;
     }
-
-    // 获取当前仿真时间
-    double current_sim_time = local_simulator_->get_simulation_time();
 
     // 使用跟踪器计算控制指令
     planning::Twist2d new_twist = trajectory_tracker_->getControlCommand(current_sim_time);

@@ -23,6 +23,8 @@ void TrajectoryTracker::setConfig(const Config& config) {
 }
 
 void TrajectoryTracker::setTrajectory(const std::vector<plugin::TrajectoryPoint>& trajectory) {
+    reset();
+
     trajectory_ = trajectory;
     has_trajectory_ = !trajectory_.empty();
 
@@ -37,12 +39,49 @@ void TrajectoryTracker::setTrajectory(const std::vector<plugin::TrajectoryPoint>
 
         std::cout << "[TrajectoryTracker] Loaded trajectory with " << trajectory_.size()
                   << " points, duration: " << getTrajectoryDuration() << "s" << std::endl;
-    }
 
-    reset();
+        // 倒车标记与修正航向计算
+        reverse_flags_.assign(trajectory_.size(), false);
+        effective_yaws_.assign(trajectory_.size(), 0.0);
+        has_reverse_segments_ = false;
+        total_path_length_ = 0.0;
+
+        const double reverse_threshold = std::abs(config_.reverse_detection_threshold);
+
+        for (size_t i = 0; i < trajectory_.size(); ++i) {
+            const auto& pt = trajectory_[i];
+
+            double heading_cos = std::cos(pt.pose.yaw);
+            double heading_sin = std::sin(pt.pose.yaw);
+            double forward_component = pt.twist.vx * heading_cos + pt.twist.vy * heading_sin;
+
+            bool is_reverse = config_.enable_reverse_tracking && (forward_component < -reverse_threshold);
+            reverse_flags_[i] = is_reverse;
+            effective_yaws_[i] = is_reverse ? normalizeAngle(pt.pose.yaw + M_PI)
+                                            : normalizeAngle(pt.pose.yaw);
+            if (is_reverse) {
+                has_reverse_segments_ = true;
+            }
+
+            if (pt.path_length > total_path_length_) {
+                total_path_length_ = pt.path_length;
+            }
+        }
+
+        // 默认将轨迹时间对齐到0
+        trajectory_start_sim_time_ = 0.0;
+        has_start_time_ = true;
+    } else {
+        has_start_time_ = false;
+        reverse_flags_.clear();
+        effective_yaws_.clear();
+        has_reverse_segments_ = false;
+        total_path_length_ = 0.0;
+    }
 }
 
-void TrajectoryTracker::setTrajectoryFromProto(const proto::PlanUpdate& plan_update) {
+void TrajectoryTracker::setTrajectoryFromProto(const proto::PlanUpdate& plan_update,
+                                               double trajectory_start_time) {
     std::vector<plugin::TrajectoryPoint> trajectory;
     trajectory.reserve(plan_update.trajectory_size());
 
@@ -69,6 +108,15 @@ void TrajectoryTracker::setTrajectoryFromProto(const proto::PlanUpdate& plan_upd
     }
 
     setTrajectory(trajectory);
+    setTrajectoryStartTime(trajectory_start_time);
+}
+
+void TrajectoryTracker::setTrajectoryStartTime(double start_time) {
+    if (!has_trajectory_) {
+        return;
+    }
+    trajectory_start_sim_time_ = start_time;
+    has_start_time_ = true;
 }
 
 bool TrajectoryTracker::hasValidTrajectory() const {
@@ -85,100 +133,65 @@ planning::Twist2d TrajectoryTracker::getControlCommand(double sim_time) {
         return planning::Twist2d{};  // 零速度
     }
 
+    double trajectory_time = toTrajectoryTime(sim_time);
+
     planning::Twist2d command;
 
     switch (config_.mode) {
         case TrackingMode::TIME_SYNC:
-            command = interpolateVelocity(sim_time);
+            command = interpolateVelocity(trajectory_time);
             break;
 
         case TrackingMode::LOOKAHEAD:
-            command = lookaheadControl(sim_time);
+            command = lookaheadControl(trajectory_time);
             break;
 
         case TrackingMode::PREDICTIVE:
             // 预测控制需要额外的位姿信息，这里简化为前瞻控制
-            command = lookaheadControl(sim_time);
+            command = lookaheadControl(trajectory_time);
             break;
 
         case TrackingMode::HYBRID:
         default:
-            // 混合策略：近距离用时间同步，远距离用前瞻控制
-            if (sim_time < config_.lookahead_time) {
-                command = interpolateVelocity(sim_time);
-            } else {
-                command = lookaheadControl(sim_time);
-            }
+            // 由于轨迹会频繁更新，直接使用前瞻控制避免起步阶段停滞
+            command = lookaheadControl(trajectory_time);
             break;
     }
 
+    bool reverse_mode = config_.enable_reverse_tracking && isReverseAtTime(trajectory_time);
+    planning::Twist2d target_command = command;
+
+    if (reverse_mode) {
+        auto current_target = getTargetStateAtTrajectoryTime(trajectory_time);
+        target_command = current_target.twist;
+
+        const double forward_threshold = std::abs(config_.reverse_detection_threshold);
+        if (!command_history_.empty() && last_command_.vx > forward_threshold &&
+            current_target.twist.vx < -forward_threshold) {
+            // 方向切换时清理历史，避免滤波导致响应迟滞
+            command_history_.clear();
+            last_command_ = planning::Twist2d{};
+        }
+    }
+
     // 应用平滑滤波
-    command = applySmoothingFilter(command);
+    planning::Twist2d filtered_command = applySmoothingFilter(target_command);
 
     // 应用动力学约束
-    command = applyDynamicConstraints(command);
+    planning::Twist2d constrained_command = applyDynamicConstraints(filtered_command);
 
     // 更新历史记录
-    last_command_ = command;
-    command_history_.push_back(command);
+    last_command_ = constrained_command;
+    command_history_.push_back(constrained_command);
     if (command_history_.size() > 100) {  // 保持最近100个命令
         command_history_.erase(command_history_.begin());
     }
 
-    return command;
+    return constrained_command;
 }
 
 plugin::TrajectoryPoint TrajectoryTracker::getTargetState(double sim_time) const {
-    if (!hasValidTrajectory()) {
-        return plugin::TrajectoryPoint{};
-    }
-
-    // 边界处理
-    if (sim_time <= trajectory_.front().time_from_start) {
-        return trajectory_.front();
-    }
-    if (sim_time >= trajectory_.back().time_from_start) {
-        return trajectory_.back();
-    }
-
-    // 查找周围的点
-    auto indices = findSurroundingIndices(sim_time);
-    size_t prev_idx = indices.first;
-    size_t next_idx = indices.second;
-
-    if (prev_idx == next_idx) {
-        return trajectory_[prev_idx];
-    }
-
-    // 线性插值
-    const auto& p1 = trajectory_[prev_idx];
-    const auto& p2 = trajectory_[next_idx];
-
-    double dt = p2.time_from_start - p1.time_from_start;
-    if (dt < 1e-6) return p1;
-
-    double ratio = (sim_time - p1.time_from_start) / dt;
-    ratio = std::clamp(ratio, 0.0, 1.0);
-
-    plugin::TrajectoryPoint result;
-
-    // 插值位置
-    result.pose.x = p1.pose.x + ratio * (p2.pose.x - p1.pose.x);
-    result.pose.y = p1.pose.y + ratio * (p2.pose.y - p1.pose.y);
-    result.pose.yaw = p1.pose.yaw + ratio * normalizeAngle(p2.pose.yaw - p1.pose.yaw);
-
-    // 插值速度
-    result.twist.vx = p1.twist.vx + ratio * (p2.twist.vx - p1.twist.vx);
-    result.twist.vy = p1.twist.vy + ratio * (p2.twist.vy - p1.twist.vy);
-    result.twist.omega = p1.twist.omega + ratio * (p2.twist.omega - p1.twist.omega);
-
-    // 插值其他属性
-    result.acceleration = p1.acceleration + ratio * (p2.acceleration - p1.acceleration);
-    result.curvature = p1.curvature + ratio * (p2.curvature - p1.curvature);
-    result.time_from_start = sim_time;
-    result.path_length = p1.path_length + ratio * (p2.path_length - p1.path_length);
-
-    return result;
+    return getTargetStateAtTrajectoryTime(toTrajectoryTime(sim_time));
 }
 
 planning::Twist2d TrajectoryTracker::getPredictiveControl(
@@ -190,11 +203,10 @@ planning::Twist2d TrajectoryTracker::getPredictiveControl(
         return planning::Twist2d{};
     }
 
-    // 查找最近的轨迹点
-    size_t closest_idx = findClosestTrajectoryPoint(current_pose);
+    double trajectory_time = toTrajectoryTime(sim_time);
 
     // 计算前瞻目标点
-    auto target_point = calculateLookaheadTarget(current_pose, sim_time);
+    auto target_point = calculateLookaheadTarget(current_pose, trajectory_time);
 
     // 计算到目标点的控制指令
     planning::Twist2d command;
@@ -203,6 +215,8 @@ planning::Twist2d TrajectoryTracker::getPredictiveControl(
     double dx = target_point.pose.x - current_pose.x;
     double dy = target_point.pose.y - current_pose.y;
     double distance = std::sqrt(dx * dx + dy * dy);
+
+    bool reverse_mode = config_.enable_reverse_tracking && isReverseAtTime(trajectory_time);
 
     if (distance > 1e-3) {
         // 计算期望的移动方向
@@ -215,8 +229,19 @@ planning::Twist2d TrajectoryTracker::getPredictiveControl(
         double speed_gain = 2.0;
         double angular_gain = 3.0;
 
-        command.vx = std::min(speed_gain * distance, target_point.twist.vx);
-        command.omega = angular_gain * angle_error;
+        double desired_speed = speed_gain * distance;
+        double target_speed = std::sqrt(target_point.twist.vx * target_point.twist.vx +
+                                        target_point.twist.vy * target_point.twist.vy);
+
+        if (reverse_mode) {
+            double limited_speed = std::min(desired_speed, target_speed);
+            command.vx = -limited_speed;
+            command.omega = target_point.twist.omega;
+        } else {
+            double limited_speed = std::min(desired_speed, target_speed);
+            command.vx = limited_speed;
+            command.omega = angular_gain * angle_error;
+        }
 
         // 限制角速度
         command.omega = std::clamp(command.omega, -config_.max_angular_velocity,
@@ -238,15 +263,22 @@ void TrajectoryTracker::updateQualityAssessment(
         return;
     }
 
+    double trajectory_time = toTrajectoryTime(sim_time);
+
     // 获取目标状态
-    auto target_state = getTargetState(sim_time);
+    auto target_state = getTargetStateAtTrajectoryTime(trajectory_time);
+    auto indices = findSurroundingIndices(trajectory_time);
+    bool reverse_mode = config_.enable_reverse_tracking &&
+        (isReverseSegment(indices.first) || isReverseSegment(indices.second));
 
     // 更新跟踪状态
     tracking_state_.current_time = sim_time;
+    tracking_state_.current_segment = indices.first;
+    tracking_state_.target_is_reverse = reverse_mode;
     tracking_state_.target_point = target_state;
     tracking_state_.actual_point.pose = actual_pose;
     tracking_state_.actual_point.twist = actual_twist;
-    tracking_state_.actual_point.time_from_start = sim_time;
+    tracking_state_.actual_point.time_from_start = trajectory_time;
 
     auto& quality = tracking_state_.quality;
 
@@ -254,15 +286,37 @@ void TrajectoryTracker::updateQualityAssessment(
     quality.position_error = calculatePositionError(actual_pose, target_state.pose);
 
     // 计算速度误差
-    quality.velocity_error = calculateVelocityError(actual_twist, target_state.twist);
+    double velocity_error = calculateVelocityError(actual_twist, target_state.twist);
 
     // 计算航向误差
-    quality.heading_error = std::abs(normalizeAngle(actual_pose.yaw - target_state.pose.yaw));
+    double heading_error = std::abs(normalizeAngle(actual_pose.yaw - target_state.pose.yaw));
 
     // 检查动力学约束违反
     double actual_speed = std::sqrt(actual_twist.vx * actual_twist.vx +
                                    actual_twist.vy * actual_twist.vy);
-    quality.velocity_limit_violated = (actual_speed > config_.max_velocity);
+    double target_speed = std::sqrt(target_state.twist.vx * target_state.twist.vx +
+                                    target_state.twist.vy * target_state.twist.vy);
+
+    if (reverse_mode) {
+        double magnitude_error = std::abs(actual_speed - target_speed);
+        if (target_state.twist.vx < 0.0 && actual_twist.vx > 0.0) {
+            magnitude_error += target_speed;
+        }
+        velocity_error = magnitude_error;
+
+        double alternate_heading = std::abs(
+            normalizeAngle(actual_pose.yaw - normalizeAngle(target_state.pose.yaw + M_PI)));
+        heading_error = std::min(heading_error, alternate_heading);
+    }
+
+    quality.velocity_error = velocity_error;
+    quality.heading_error = heading_error;
+
+    double velocity_limit = config_.max_velocity;
+    if (reverse_mode && config_.max_reverse_velocity > 0.0) {
+        velocity_limit = std::min(config_.max_velocity, config_.max_reverse_velocity);
+    }
+    quality.velocity_limit_violated = (actual_speed > velocity_limit);
     quality.angular_velocity_limit_violated =
         (std::abs(actual_twist.omega) > config_.max_angular_velocity);
 
@@ -294,13 +348,19 @@ void TrajectoryTracker::reset() {
     last_command_ = planning::Twist2d{};
     command_history_.clear();
     quality_history_.clear();
+    reverse_flags_.clear();
+    effective_yaws_.clear();
+    has_reverse_segments_ = false;
+    total_path_length_ = 0.0;
     last_update_time_ = std::chrono::steady_clock::now();
+    trajectory_start_sim_time_ = 0.0;
+    has_start_time_ = false;
     initialized_ = true;
 }
 
 bool TrajectoryTracker::isTrajectoryCompleted(double sim_time) const {
     if (!hasValidTrajectory()) return true;
-    return sim_time >= trajectory_.back().time_from_start;
+    return toTrajectoryTime(sim_time) >= trajectory_.back().time_from_start;
 }
 
 double TrajectoryTracker::getCompletionPercentage(double sim_time) const {
@@ -309,7 +369,15 @@ double TrajectoryTracker::getCompletionPercentage(double sim_time) const {
     double duration = getTrajectoryDuration();
     if (duration <= 0) return 100.0;
 
-    return std::clamp(100.0 * sim_time / duration, 0.0, 100.0);
+    double trajectory_time = toTrajectoryTime(sim_time);
+    auto target_state = getTargetStateAtTrajectoryTime(trajectory_time);
+    double progress = target_state.path_length;
+
+    if (total_path_length_ > 1e-6) {
+        return std::clamp(100.0 * progress / total_path_length_, 0.0, 100.0);
+    }
+
+    return std::clamp(100.0 * trajectory_time / duration, 0.0, 100.0);
 }
 
 // ========== 私有方法实现 ==========
@@ -336,14 +404,20 @@ std::pair<size_t, size_t> TrajectoryTracker::findSurroundingIndices(double targe
 }
 
 planning::Twist2d TrajectoryTracker::interpolateVelocity(double target_time) {
-    auto target_state = getTargetState(target_time);
+    auto target_state = getTargetStateAtTrajectoryTime(target_time);
     return target_state.twist;
 }
 
-planning::Twist2d TrajectoryTracker::lookaheadControl(double sim_time) {
+planning::Twist2d TrajectoryTracker::lookaheadControl(double trajectory_time) {
     // 查找前瞻时间后的目标点
-    double lookahead_time = sim_time + config_.lookahead_time;
-    auto target_state = getTargetState(lookahead_time);
+    double lookahead_duration = config_.lookahead_time;
+    if (config_.enable_reverse_tracking && isReverseAtTime(trajectory_time)) {
+        lookahead_duration = config_.reverse_lookahead_time;
+    }
+
+    double lookahead_time = trajectory_time + lookahead_duration;
+    auto target_state = getTargetStateAtTrajectoryTime(lookahead_time);
+
     return target_state.twist;
 }
 
@@ -365,21 +439,142 @@ size_t TrajectoryTracker::findClosestTrajectoryPoint(const planning::Pose2d& cur
 }
 
 plugin::TrajectoryPoint TrajectoryTracker::calculateLookaheadTarget(
-    const planning::Pose2d& current_pose, double sim_time) const {
+    const planning::Pose2d& current_pose, double trajectory_time) const {
 
     // 基于距离的前瞻
     size_t start_idx = findClosestTrajectoryPoint(current_pose);
+    double distance_threshold = config_.lookahead_distance;
+    if (config_.enable_reverse_tracking && isReverseAtTime(trajectory_time)) {
+        distance_threshold = config_.reverse_lookahead_distance;
+    }
 
     for (size_t i = start_idx; i < trajectory_.size(); ++i) {
         double distance = calculatePositionError(current_pose, trajectory_[i].pose);
-        if (distance >= config_.lookahead_distance) {
-            return trajectory_[i];
+        if (distance >= distance_threshold) {
+            plugin::TrajectoryPoint target = trajectory_[i];
+            if (config_.enable_reverse_tracking) {
+                target.pose.yaw = getEffectiveYaw(i);
+            }
+            return target;
         }
     }
 
     // 如果没找到足够远的点，使用时间前瞻
-    double lookahead_time = sim_time + config_.lookahead_time;
-    return getTargetState(lookahead_time);
+    double lookahead_duration = config_.lookahead_time;
+    if (config_.enable_reverse_tracking && isReverseAtTime(trajectory_time)) {
+        lookahead_duration = config_.reverse_lookahead_time;
+    }
+    double lookahead_time = trajectory_time + lookahead_duration;
+    return getTargetStateAtTrajectoryTime(lookahead_time);
+}
+
+bool TrajectoryTracker::isReverseSegment(size_t index) const {
+    return config_.enable_reverse_tracking && index < reverse_flags_.size() && reverse_flags_[index];
+}
+
+bool TrajectoryTracker::isReverseAtTime(double trajectory_time) const {
+    if (!config_.enable_reverse_tracking || reverse_flags_.empty()) {
+        return false;
+    }
+
+    auto indices = findSurroundingIndices(trajectory_time);
+    bool prev_reverse = (indices.first < reverse_flags_.size()) ? reverse_flags_[indices.first] : false;
+    bool next_reverse = (indices.second < reverse_flags_.size()) ? reverse_flags_[indices.second] : prev_reverse;
+    return prev_reverse || next_reverse;
+}
+
+double TrajectoryTracker::getPathLengthAt(double trajectory_time) const {
+    auto state = getTargetStateAtTrajectoryTime(trajectory_time);
+    return state.path_length;
+}
+
+double TrajectoryTracker::getEffectiveYaw(size_t index) const {
+    if (config_.enable_reverse_tracking && index < effective_yaws_.size()) {
+        return effective_yaws_[index];
+    }
+    if (index < trajectory_.size()) {
+        return normalizeAngle(trajectory_[index].pose.yaw);
+    }
+    return 0.0;
+}
+
+double TrajectoryTracker::toTrajectoryTime(double sim_time) const {
+    if (!has_start_time_) {
+        return std::max(0.0, sim_time);
+    }
+    double relative = sim_time - trajectory_start_sim_time_;
+    if (relative < 0.0) {
+        return 0.0;
+    }
+    return relative;
+}
+
+plugin::TrajectoryPoint TrajectoryTracker::getTargetStateAtTrajectoryTime(double trajectory_time) const {
+    if (!hasValidTrajectory()) {
+        return plugin::TrajectoryPoint{};
+    }
+
+    if (trajectory_time <= trajectory_.front().time_from_start) {
+        plugin::TrajectoryPoint result = trajectory_.front();
+        if (config_.enable_reverse_tracking && !effective_yaws_.empty()) {
+            result.pose.yaw = getEffectiveYaw(0);
+        }
+        return result;
+    }
+    if (trajectory_time >= trajectory_.back().time_from_start) {
+        plugin::TrajectoryPoint result = trajectory_.back();
+        if (config_.enable_reverse_tracking && !effective_yaws_.empty()) {
+            result.pose.yaw = getEffectiveYaw(trajectory_.size() - 1);
+        }
+        return result;
+    }
+
+    auto indices = findSurroundingIndices(trajectory_time);
+    size_t prev_idx = indices.first;
+    size_t next_idx = indices.second;
+
+    if (prev_idx == next_idx) {
+        plugin::TrajectoryPoint result = trajectory_[prev_idx];
+        if (config_.enable_reverse_tracking && !effective_yaws_.empty()) {
+            result.pose.yaw = getEffectiveYaw(prev_idx);
+        }
+        return result;
+    }
+
+    const auto& p1 = trajectory_[prev_idx];
+    const auto& p2 = trajectory_[next_idx];
+
+    double dt = p2.time_from_start - p1.time_from_start;
+    if (dt < 1e-6) {
+        return p1;
+    }
+
+    double ratio = (trajectory_time - p1.time_from_start) / dt;
+    ratio = std::clamp(ratio, 0.0, 1.0);
+
+    plugin::TrajectoryPoint result;
+
+    result.pose.x = p1.pose.x + ratio * (p2.pose.x - p1.pose.x);
+    result.pose.y = p1.pose.y + ratio * (p2.pose.y - p1.pose.y);
+    if (config_.enable_reverse_tracking && !effective_yaws_.empty()) {
+        double yaw1 = getEffectiveYaw(prev_idx);
+        double yaw2 = getEffectiveYaw(next_idx);
+        double yaw = yaw1 + ratio * normalizeAngle(yaw2 - yaw1);
+        result.pose.yaw = normalizeAngle(yaw);
+    } else {
+        result.pose.yaw = p1.pose.yaw + ratio * normalizeAngle(p2.pose.yaw - p1.pose.yaw);
+    }
+
+    result.twist.vx = p1.twist.vx + ratio * (p2.twist.vx - p1.twist.vx);
+    result.twist.vy = p1.twist.vy + ratio * (p2.twist.vy - p1.twist.vy);
+    result.twist.omega = p1.twist.omega + ratio * (p2.twist.omega - p1.twist.omega);
+
+    result.acceleration = p1.acceleration + ratio * (p2.acceleration - p1.acceleration);
+    result.curvature = p1.curvature + ratio * (p2.curvature - p1.curvature);
+    result.time_from_start = trajectory_time;
+    result.path_length = p1.path_length + ratio * (p2.path_length - p1.path_length);
+
+    return result;
 }
 
 planning::Twist2d TrajectoryTracker::applySmoothingFilter(const planning::Twist2d& raw_command) {
@@ -407,6 +602,18 @@ planning::Twist2d TrajectoryTracker::applyDynamicConstraints(const planning::Twi
         double scale = config_.max_velocity / speed;
         constrained.vx *= scale;
         constrained.vy *= scale;
+    }
+
+    if (config_.enable_reverse_tracking && constrained.vx < 0.0 &&
+        config_.max_reverse_velocity > 0.0) {
+        double reverse_speed = std::sqrt(constrained.vx * constrained.vx +
+                                         constrained.vy * constrained.vy);
+        double allowed_speed = std::min(config_.max_velocity, config_.max_reverse_velocity);
+        if (reverse_speed > allowed_speed && reverse_speed > 1e-6) {
+            double scale = allowed_speed / reverse_speed;
+            constrained.vx *= scale;
+            constrained.vy *= scale;
+        }
     }
 
     // 角速度限制
