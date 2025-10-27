@@ -55,6 +55,11 @@ public:
   void drawESDFMap(const planning::ESDFMap& esdf_map);
   void drawTrajectory(const std::vector<plugin::TrajectoryPoint>& trajectory,
                       const std::string& planner_name = "") override;
+  void drawTrajectoryTracking(const planning::Pose2d& actual_pose,
+                              const planning::Pose2d& target_pose,
+                              const plugin::TrajectoryPoint& current_target,
+                              double position_error,
+                              double heading_error) override;
   void drawDebugPaths(const std::vector<std::vector<planning::Pose2d>>& paths,
                       const std::vector<std::string>& path_names,
                       const std::vector<std::string>& colors) override;
@@ -132,6 +137,16 @@ private:
 
   // Debug paths for multi-stage visualization
   std::vector<std::vector<planning::Pose2d>> debug_paths_;
+
+  // 轨迹跟踪数据
+  struct TrackingData {
+    planning::Pose2d actual_pose;
+    planning::Pose2d target_pose;
+    plugin::TrajectoryPoint current_target;
+    double position_error = 0.0;
+    double heading_error = 0.0;
+    bool has_tracking_data = false;
+  } tracking_data_;
   std::vector<std::string> debug_path_names_;
   std::vector<std::string> debug_path_colors_;
   std::map<std::string, std::string> context_info_;
@@ -144,6 +159,9 @@ private:
     double zoom = 1.0;      // 缩放倍数
     bool follow_ego = true; // 是否跟随自车
   } view_state_;
+
+  // 鼠标滑轮缩放
+  int wheel_delta_ = 0;  // 滑轮增量累积
 
   // 🎨 可视化选项（图例勾选项）
   struct VisualizationOptions {

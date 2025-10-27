@@ -1,6 +1,7 @@
 #pragma once
 
 #include "viz/visualizer_interface.hpp"
+#include "control/trajectory_tracker.hpp"
 #include "world_tick.pb.h"
 #include "plan_update.pb.h"
 #include "ego_cmd.pb.h"
@@ -227,6 +228,9 @@ private:
   // 插件系统模块
   std::unique_ptr<plugin::PerceptionPluginManager> perception_plugin_manager_;
   std::unique_ptr<plugin::PlannerPluginManager> planner_plugin_manager_;
+
+  // 轨迹跟踪器
+  std::unique_ptr<control::TrajectoryTracker> trajectory_tracker_;
 
   // 本地仿真器集成
   std::shared_ptr<sim::LocalSimulator> local_simulator_;

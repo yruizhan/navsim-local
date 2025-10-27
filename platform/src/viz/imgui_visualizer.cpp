@@ -197,6 +197,17 @@ void ImGuiVisualizer::handleEvents() {
     // 不再处理键盘快捷键，完全交给 ImGui 处理
     // 这样可以确保输入框能正常工作
 
+    // 🔍 鼠标滑轮缩放功能（在Scene View窗口内时生效）
+    if (event.type == SDL_MOUSEWHEEL) {
+      // 获取鼠标位置
+      int mouse_x, mouse_y;
+      SDL_GetMouseState(&mouse_x, &mouse_y);
+
+      // 这里先记录滑轮事件，具体的缩放逻辑在renderScene中处理
+      // 因为需要判断鼠标是否在Scene View窗口内
+      wheel_delta_ += event.wheel.y;  // 累积滑轮增量
+    }
+
     // 鼠标点击事件将在renderScene中处理，以便获取正确的画布坐标
   }
 }
@@ -306,6 +317,27 @@ void ImGuiVisualizer::drawTrajectory(const std::vector<plugin::TrajectoryPoint>&
   has_planning_result_ = true;
   debug_info_["Trajectory Points"] = std::to_string(trajectory.size());
   debug_info_["Planner"] = planner_name;
+}
+
+void ImGuiVisualizer::drawTrajectoryTracking(const planning::Pose2d& actual_pose,
+                                              const planning::Pose2d& target_pose,
+                                              const plugin::TrajectoryPoint& current_target,
+                                              double position_error,
+                                              double heading_error) {
+  // 存储轨迹跟踪状态用于渲染
+  tracking_data_.actual_pose = actual_pose;
+  tracking_data_.target_pose = target_pose;
+  tracking_data_.current_target = current_target;
+  tracking_data_.position_error = position_error;
+  tracking_data_.heading_error = heading_error;
+  tracking_data_.has_tracking_data = true;
+
+  // 更新调试信息
+  debug_info_["🎯 Actual Pos"] = "(" + formatDouble(actual_pose.x, 2) + ", " + formatDouble(actual_pose.y, 2) + ")";
+  debug_info_["🔻 Target Pos"] = "(" + formatDouble(target_pose.x, 2) + ", " + formatDouble(target_pose.y, 2) + ")";
+  debug_info_["📏 Position Error"] = formatDouble(position_error * 1000, 1) + " mm";
+  debug_info_["🧭 Heading Error"] = formatDouble(heading_error * 180.0 / M_PI, 1) + " deg";
+  debug_info_["⚡ Target Speed"] = formatDouble(current_target.twist.vx, 2) + " m/s";
 }
 
 void ImGuiVisualizer::drawDebugPaths(const std::vector<std::vector<planning::Pose2d>>& paths,
@@ -1250,6 +1282,86 @@ void ImGuiVisualizer::renderScene() {
     }
   }  // 🎨 结束轨迹绘制
 
+  // 🎯 5.5. 绘制轨迹跟踪状态（实际位置、目标位置、误差）
+  if (tracking_data_.has_tracking_data) {
+    static int tracking_log_count = 0;
+    if (tracking_log_count++ % 60 == 0) {
+      std::cout << "[Viz] Drawing trajectory tracking:" << std::endl;
+      std::cout << "[Viz]   Actual pos: (" << tracking_data_.actual_pose.x << ", " << tracking_data_.actual_pose.y << ")" << std::endl;
+      std::cout << "[Viz]   Target pos: (" << tracking_data_.target_pose.x << ", " << tracking_data_.target_pose.y << ")" << std::endl;
+      std::cout << "[Viz]   Position error: " << tracking_data_.position_error * 1000 << " mm" << std::endl;
+    }
+
+    // 绘制目标位置点（红色圆圈）
+    auto target_screen = worldToScreen(tracking_data_.target_pose.x, tracking_data_.target_pose.y);
+    draw_list->AddCircle(
+      ImVec2(target_screen.x, target_screen.y),
+      12.0f,
+      IM_COL32(255, 50, 50, 255),  // 红色
+      0, 3.0f
+    );
+
+    // 绘制目标位置的方向箭头
+    float target_yaw = tracking_data_.target_pose.yaw;
+    float arrow_length = 20.0f;
+    auto target_arrow_end = worldToScreen(
+      tracking_data_.target_pose.x + arrow_length * 0.05 * cos(target_yaw),
+      tracking_data_.target_pose.y + arrow_length * 0.05 * sin(target_yaw)
+    );
+    draw_list->AddLine(
+      ImVec2(target_screen.x, target_screen.y),
+      ImVec2(target_arrow_end.x, target_arrow_end.y),
+      IM_COL32(255, 100, 100, 255),  // 浅红色
+      2.0f
+    );
+
+    // 绘制实际位置到目标位置的连线（误差线，黄色虚线）
+    auto actual_screen = worldToScreen(tracking_data_.actual_pose.x, tracking_data_.actual_pose.y);
+
+    // 计算虚线绘制
+    float dx = target_screen.x - actual_screen.x;
+    float dy = target_screen.y - actual_screen.y;
+    float length = sqrt(dx * dx + dy * dy);
+    if (length > 1.0f) {
+      float ux = dx / length;
+      float uy = dy / length;
+
+      const float dash_len = 8.0f;
+      const float gap_len = 4.0f;
+
+      for (float t = 0; t < length; t += dash_len + gap_len) {
+        float end_t = std::min(t + dash_len, length);
+        ImVec2 start(actual_screen.x + ux * t, actual_screen.y + uy * t);
+        ImVec2 end(actual_screen.x + ux * end_t, actual_screen.y + uy * end_t);
+        draw_list->AddLine(start, end, IM_COL32(255, 255, 0, 200), 2.0f);  // 黄色虚线
+      }
+    }
+
+    // 绘制跟踪速度矢量（从实际位置开始的绿色箭头）
+    float target_speed = sqrt(tracking_data_.current_target.twist.vx * tracking_data_.current_target.twist.vx +
+                             tracking_data_.current_target.twist.vy * tracking_data_.current_target.twist.vy);
+    if (target_speed > 0.1) {
+      float speed_arrow_length = target_speed * 30.0f;  // 缩放因子
+      auto speed_arrow_end = worldToScreen(
+        tracking_data_.actual_pose.x + tracking_data_.current_target.twist.vx * 0.5,
+        tracking_data_.actual_pose.y + tracking_data_.current_target.twist.vy * 0.5
+      );
+      draw_list->AddLine(
+        ImVec2(actual_screen.x, actual_screen.y),
+        ImVec2(speed_arrow_end.x, speed_arrow_end.y),
+        IM_COL32(0, 255, 0, 255),  // 绿色
+        2.5f
+      );
+
+      // 绘制箭头头部
+      draw_list->AddCircleFilled(
+        ImVec2(speed_arrow_end.x, speed_arrow_end.y),
+        4.0f,
+        IM_COL32(0, 255, 0, 255)
+      );
+    }
+  }  // 🎯 结束轨迹跟踪绘制
+
   // 🎨 6. 绘制目标点（可选）
   if (viz_options_.show_goal) {
     auto goal_pos = worldToScreen(goal_.x, goal_.y);
@@ -1499,6 +1611,59 @@ void ImGuiVisualizer::renderScene() {
       );
     }
   }  // 🎨 结束自车绘制
+
+  // 🔍 处理鼠标滑轮缩放
+  if (wheel_delta_ != 0) {
+    // 检查鼠标是否在画布区域内
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+    if (mouse_pos.x >= canvas_pos.x && mouse_pos.x <= canvas_pos.x + canvas_size.x &&
+        mouse_pos.y >= canvas_pos.y && mouse_pos.y <= canvas_pos.y + canvas_size.y) {
+
+      // 缩放参数
+      double zoom_factor = 1.1;  // 每次滚轮的缩放倍数
+      double min_zoom = 0.1;     // 最小缩放（可以看到更大范围）
+      double max_zoom = 10.0;    // 最大缩放（可以看到更多细节）
+
+      // 计算新的缩放值
+      if (wheel_delta_ > 0) {
+        // 向上滚轮：放大
+        view_state_.zoom *= zoom_factor;
+      } else {
+        // 向下滚轮：缩小
+        view_state_.zoom /= zoom_factor;
+      }
+
+      // 限制缩放范围
+      view_state_.zoom = std::clamp(view_state_.zoom, min_zoom, max_zoom);
+
+      // 缩放时暂时停止跟随自车，让用户可以自由查看
+      if (view_state_.follow_ego) {
+        view_state_.follow_ego = false;
+        // 将当前视图中心设置为自车位置
+        view_state_.center_x = ego_.pose.x;
+        view_state_.center_y = ego_.pose.y;
+      }
+
+      // 可选：以鼠标位置为中心缩放（更自然的体验）
+      // 计算鼠标在世界坐标系中的位置
+      float rel_x = mouse_pos.x - (canvas_pos.x + canvas_size.x / 2.0f);
+      float rel_y = (canvas_pos.y + canvas_size.y / 2.0f) - mouse_pos.y;
+      double mouse_world_x = view_state_.center_x + rel_x / (config_.pixels_per_meter * view_state_.zoom);
+      double mouse_world_y = view_state_.center_y + rel_y / (config_.pixels_per_meter * view_state_.zoom);
+
+      // 调整视图中心，使鼠标指向的世界坐标点保持不变
+      // （这样缩放就是以鼠标指向的点为中心的）
+      // view_state_.center_x = mouse_world_x - rel_x / (config_.pixels_per_meter * view_state_.zoom);
+      // view_state_.center_y = mouse_world_y - rel_y / (config_.pixels_per_meter * view_state_.zoom);
+
+      // 更新调试信息
+      debug_info_["🔍 Zoom"] = formatDouble(view_state_.zoom, 2) + "x";
+      debug_info_["🎯 View Center"] = "(" + formatDouble(view_state_.center_x, 1) + ", " + formatDouble(view_state_.center_y, 1) + ")";
+    }
+
+    // 重置滑轮增量
+    wheel_delta_ = 0;
+  }
 
   // 处理目标点设置的鼠标点击事件
   if (goal_setting_mode_) {

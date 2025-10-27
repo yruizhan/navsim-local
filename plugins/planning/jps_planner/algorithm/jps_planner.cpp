@@ -19,6 +19,9 @@ using namespace JPS;
 
 JPSPlanner::JPSPlanner(std::shared_ptr<navsim::perception::ESDFMap> map)
     : map_util_(map), status_(0), if_first_point_cut_(false) {
+  // Initialize with zero velocity as default (can be overridden via setCurrentVelocityState)
+  current_state_VAJ_ = Eigen::Vector3d(0.0, 0.0, 0.0);  // velocity, acceleration, jerk
+  current_state_OAJ_ = Eigen::Vector3d(0.0, 0.0, 0.0);  // angular velocity, acceleration, jerk
   // Configuration will be set via setConfig()
 }
 
@@ -45,9 +48,8 @@ bool JPSPlanner::plan(const Eigen::Vector3d& start, const Eigen::Vector3d& goal)
   start_state_ = start;
   end_state_ = goal;
 
-  // Initialize current state for trajectory generation
-  current_state_VAJ_ = Eigen::Vector3d(0.0, 0.0, 0.0);  // Initial velocity, acceleration, jerk
-  current_state_OAJ_ = Eigen::Vector3d(0.0, 0.0, 0.0);  // Initial angular velocity, acceleration, jerk
+  // Note: current_state_VAJ_ and current_state_OAJ_ should be set via setCurrentVelocityState()
+  // before calling plan() to ensure trajectory continuity from actual vehicle state
 
   Eigen::Vector2i start_idx = map_util_->coord2gridIndex(start.head(2));
   Eigen::Vector2i goal_idx = map_util_->coord2gridIndex(goal.head(2));
@@ -526,6 +528,12 @@ double JPSPlanner::evaluteTimeOfPos(const double& pos, const double& locallength
 
 bool JPSPlanner::JPS_check_if_collision(const Eigen::Vector2d& pos) {
   return map_util_->getDistanceReal(pos) < config_.safe_dis;
+}
+
+void JPSPlanner::setCurrentVelocityState(const Eigen::Vector3d& current_state_VAJ,
+                                          const Eigen::Vector3d& current_state_OAJ) {
+  current_state_VAJ_ = current_state_VAJ;
+  current_state_OAJ_ = current_state_OAJ;
 }
 
 

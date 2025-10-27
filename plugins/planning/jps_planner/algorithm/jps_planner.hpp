@@ -90,6 +90,14 @@ class JPSPlanner {
    */
   int getStatus() const { return status_; }
 
+  /**
+   * @brief Set current velocity state for trajectory continuity
+   * @param current_state_VAJ Current velocity, acceleration, jerk state
+   * @param current_state_OAJ Current angular velocity, acceleration, jerk state
+   */
+  void setCurrentVelocityState(const Eigen::Vector3d& current_state_VAJ,
+                               const Eigen::Vector3d& current_state_OAJ);
+
   // Public member for trajectory data (kept for compatibility)
   FlatTrajData flat_traj_;
 

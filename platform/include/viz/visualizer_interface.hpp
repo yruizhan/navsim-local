@@ -88,6 +88,15 @@ public:
                                const std::string& planner_name = "") = 0;
 
   /**
+   * @brief 绘制轨迹跟踪状态（目标点、实际位置、误差）
+   */
+  virtual void drawTrajectoryTracking(const planning::Pose2d& actual_pose,
+                                      const planning::Pose2d& target_pose,
+                                      const plugin::TrajectoryPoint& current_target,
+                                      double position_error,
+                                      double heading_error) = 0;
+
+  /**
    * @brief 绘制调试路径（用于显示多个路径阶段）
    */
   virtual void drawDebugPaths(const std::vector<std::vector<planning::Pose2d>>& paths,
@@ -155,6 +164,8 @@ public:
   void drawDynamicObstacles(const std::vector<planning::DynamicObstacle>&) override {}
   void drawOccupancyGrid(const planning::OccupancyGrid&) override {}
   void drawTrajectory(const std::vector<plugin::TrajectoryPoint>&, const std::string&) override {}
+  void drawTrajectoryTracking(const planning::Pose2d&, const planning::Pose2d&,
+                              const plugin::TrajectoryPoint&, double, double) override {}
   void drawDebugPaths(const std::vector<std::vector<planning::Pose2d>>&,
                       const std::vector<std::string>&, const std::vector<std::string>&) override {}
   void updatePlanningContext(const planning::PlanningContext&) override {}

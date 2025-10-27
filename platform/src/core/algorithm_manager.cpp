@@ -12,6 +12,7 @@
 #include "viz/visualizer_interface.hpp"
 #include "viz/imgui_visualizer.hpp"
 #include "sim/local_simulator.hpp"
+#include "control/trajectory_tracker.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -32,6 +33,19 @@ bool AlgorithmManager::initialize() {
   try {
     std::cout << "[AlgorithmManager] Initializing with plugin system..." << std::endl;
     setupPluginSystem();
+
+    // 初始化轨迹跟踪器
+    control::TrajectoryTracker::Config tracker_config;
+    tracker_config.mode = control::TrajectoryTracker::TrackingMode::HYBRID;
+    tracker_config.lookahead_time = 0.3;
+    tracker_config.lookahead_distance = 1.0;
+    tracker_config.enable_quality_assessment = true;
+    tracker_config.max_velocity = 3.0;
+    tracker_config.max_acceleration = 2.0;
+    tracker_config.max_angular_velocity = 2.0;
+
+    trajectory_tracker_ = std::make_unique<control::TrajectoryTracker>(tracker_config);
+    std::cout << "[AlgorithmManager] Trajectory tracker initialized" << std::endl;
 
     // 初始化可视化器
     if (config_.enable_visualization) {
@@ -420,6 +434,11 @@ void AlgorithmManager::reset() {
   // 重置规划器插件
   if (planner_plugin_manager_) {
     planner_plugin_manager_->reset();
+  }
+
+  // 重置轨迹跟踪器
+  if (trajectory_tracker_) {
+    trajectory_tracker_->reset();
   }
 
   // 重置统计信息
@@ -1016,47 +1035,128 @@ bool AlgorithmManager::process_simulation_step(double dt) {
       first_print = false;
     }
 
-    // 🚗 新的控制策略：使用前瞻点的速度
-    // 原因：第一个点的速度通常是 0（从静止开始），需要使用前瞻点
+    // 🚗 使用改进的轨迹跟踪器
 
-    // 前瞻策略：使用 0.2 秒后的轨迹点（约 6 个仿真步）
-    const double lookahead_time = 0.2;  // 200ms 前瞻
-    int control_index = 0;
+    // 设置新轨迹到跟踪器
+    trajectory_tracker_->setTrajectoryFromProto(plan_update);
 
-    // 找到时间最接近 lookahead_time 的点
-    for (int i = 0; i < plan_update.trajectory_size(); ++i) {
-      if (plan_update.trajectory(i).t() >= lookahead_time) {
-        control_index = i;
-        break;
+    // 🔍 轨迹设置调试信息
+    if (config_.verbose_logging && world_state.frame_id % 60 == 0) {  // 每2秒打印一次
+      std::cout << "[AlgorithmManager] 🎯 轨迹设置调试信息:" << std::endl;
+      std::cout << "  规划轨迹点数: " << plan_update.trajectory_size() << std::endl;
+      if (plan_update.trajectory_size() > 0) {
+        std::cout << "  首个轨迹点: (" << plan_update.trajectory(0).x()
+                  << ", " << plan_update.trajectory(0).y() << ")" << std::endl;
+        std::cout << "  首个轨迹点速度: vx=" << plan_update.trajectory(0).vx() << std::endl;
+        std::cout << "  首个轨迹点时间: " << plan_update.trajectory(0).t() << " s" << std::endl;
       }
+      std::cout << "  跟踪器轨迹时长: " << trajectory_tracker_->getTrajectoryDuration() << " s" << std::endl;
+      std::cout << "  跟踪器有效轨迹: " << (trajectory_tracker_->hasValidTrajectory() ? "是" : "否") << std::endl;
     }
 
-    // 如果轨迹太短，至少使用第 5 个点（避免使用初始的 0 速度点）
-    if (control_index == 0 && plan_update.trajectory_size() > 5) {
-      control_index = 5;
-    }
+    // 获取当前仿真时间
+    double current_sim_time = local_simulator_->get_simulation_time();
 
-    const auto& control_point = plan_update.trajectory(control_index);
+    // 使用跟踪器计算控制指令
+    planning::Twist2d new_twist = trajectory_tracker_->getControlCommand(current_sim_time);
 
-    planning::Twist2d new_twist;
-    new_twist.vx = control_point.vx();
-    new_twist.vy = control_point.vy();
-    new_twist.omega = control_point.omega();
+    // 获取当前世界状态用于质量评估
+    const auto& current_world_state = local_simulator_->get_world_state();
 
-    // 只设置速度，不设置位置！
+    // 更新轨迹跟踪质量评估
+    trajectory_tracker_->updateQualityAssessment(
+        current_world_state.ego_pose,
+        current_world_state.ego_twist,
+        current_sim_time
+    );
+
+    // 应用控制指令
     local_simulator_->set_ego_twist(new_twist);
 
+    // 显示轨迹跟踪质量信息
+    if (visualizer_) {
+      const auto& quality = trajectory_tracker_->getQualityMetrics();
+      const auto& tracking_state = trajectory_tracker_->getTrackingState();
+
+      // 实时质量指标显示
+      visualizer_->showDebugInfo("=== Trajectory Tracking ===", "");
+      visualizer_->showDebugInfo("Position Error",
+          std::to_string(static_cast<int>(quality.position_error * 1000)) + " mm");
+      visualizer_->showDebugInfo("Velocity Error",
+          std::to_string(static_cast<int>(quality.velocity_error * 1000)) + " mm/s");
+      visualizer_->showDebugInfo("Heading Error",
+          std::to_string(static_cast<int>(quality.heading_error * 180.0 / M_PI)) + " deg");
+      visualizer_->showDebugInfo("Smoothness Score",
+          std::to_string(static_cast<int>(quality.smoothness_score)) + "/100");
+      visualizer_->showDebugInfo("Overall Score",
+          std::to_string(static_cast<int>(quality.overall_score)) + "/100");
+
+      // 轨迹完成度
+      double completion = trajectory_tracker_->getCompletionPercentage(current_sim_time);
+      visualizer_->showDebugInfo("Trajectory Progress",
+          std::to_string(static_cast<int>(completion)) + "%");
+
+      // 动力学约束状态
+      std::string constraint_status = "OK";
+      if (quality.velocity_limit_violated) constraint_status = "VEL_LIMIT";
+      if (quality.angular_velocity_limit_violated) constraint_status = "ANG_LIMIT";
+      visualizer_->showDebugInfo("Constraints", constraint_status);
+
+      // 🎯 绘制轨迹跟踪状态可视化
+      auto target_state = trajectory_tracker_->getTargetState(current_sim_time);
+      planning::Pose2d target_pose{target_state.pose.x, target_state.pose.y, target_state.pose.yaw};
+
+      visualizer_->drawTrajectoryTracking(
+        current_world_state.ego_pose,
+        target_pose,
+        target_state,
+        quality.position_error,
+        quality.heading_error
+      );
+    }
+
     if (config_.verbose_logging && world_state.frame_id % 30 == 0) {  // 每秒打印一次
+      const auto& quality = trajectory_tracker_->getQualityMetrics();
+      auto target_state = trajectory_tracker_->getTargetState(current_sim_time);
+
       std::cout << "[AlgorithmManager] Step " << world_state.frame_id
                 << ": Planning success, " << plan_update.trajectory_size()
                 << " trajectory points generated" << std::endl;
-      std::cout << "  Using trajectory point [" << control_index << "]: t=" << control_point.t() << "s" << std::endl;
-      std::cout << "  Ego twist: vx=" << new_twist.vx
+
+      // 🔍 详细的轨迹跟踪调试信息
+      std::cout << "=== 轨迹跟踪状态调试 ===" << std::endl;
+      std::cout << "  仿真时间: " << current_sim_time << " s" << std::endl;
+      std::cout << "  实际位置: (" << current_world_state.ego_pose.x << ", "
+                << current_world_state.ego_pose.y << ", "
+                << current_world_state.ego_pose.yaw << ")" << std::endl;
+      std::cout << "  目标位置: (" << target_state.pose.x << ", "
+                << target_state.pose.y << ", "
+                << target_state.pose.yaw << ")" << std::endl;
+      std::cout << "  实际速度: vx=" << current_world_state.ego_twist.vx
+                << ", vy=" << current_world_state.ego_twist.vy
+                << ", omega=" << current_world_state.ego_twist.omega << std::endl;
+      std::cout << "  目标速度: vx=" << target_state.twist.vx
+                << ", vy=" << target_state.twist.vy
+                << ", omega=" << target_state.twist.omega << std::endl;
+      std::cout << "  控制指令: vx=" << new_twist.vx
                 << ", vy=" << new_twist.vy
                 << ", omega=" << new_twist.omega << std::endl;
-      std::cout << "  Current ego pose: (" << world_state.ego_pose.x
-                << ", " << world_state.ego_pose.y
-                << ", " << world_state.ego_pose.yaw << ")" << std::endl;
+      std::cout << "  跟踪质量:" << std::endl;
+      std::cout << "    位置误差: " << quality.position_error * 1000 << " mm" << std::endl;
+      std::cout << "    速度误差: " << quality.velocity_error * 1000 << " mm/s" << std::endl;
+      std::cout << "    航向误差: " << quality.heading_error * 180.0 / M_PI << " deg" << std::endl;
+      std::cout << "    平滑度评分: " << quality.smoothness_score << "/100" << std::endl;
+      std::cout << "    综合评分: " << quality.overall_score << "/100" << std::endl;
+
+      // 检查是否跟踪器有有效轨迹
+      if (!trajectory_tracker_->hasValidTrajectory()) {
+        std::cout << "  ⚠️  警告: 轨迹跟踪器没有有效轨迹!" << std::endl;
+      } else {
+        double completion = trajectory_tracker_->getCompletionPercentage(current_sim_time);
+        std::cout << "  轨迹完成度: " << completion << "%" << std::endl;
+        std::cout << "  轨迹总时长: " << trajectory_tracker_->getTrajectoryDuration() << " s" << std::endl;
+      }
+      std::cout << "===========================" << std::endl;
     }
   }
 

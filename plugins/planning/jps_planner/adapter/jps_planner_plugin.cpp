@@ -208,6 +208,29 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
     std::cout << "[JPSPlannerPlugin] Calling jps_planner_->plan()..." << std::endl;
   }
 
+  // 🔧 设置当前速度状态 - 修复轨迹连续性问题
+  Eigen::Vector3d current_state_VAJ;  // velocity, acceleration, jerk
+  Eigen::Vector3d current_state_OAJ;  // angular velocity, angular acceleration, jerk
+
+  // 从context.ego.twist中获取当前速度状态
+  current_state_VAJ(0) = sqrt(context.ego.twist.vx * context.ego.twist.vx +
+                              context.ego.twist.vy * context.ego.twist.vy);  // Linear velocity magnitude
+  current_state_VAJ(1) = 0.0;  // Assume zero acceleration initially
+  current_state_VAJ(2) = 0.0;  // Assume zero jerk initially
+
+  current_state_OAJ(0) = context.ego.twist.omega;  // Angular velocity
+  current_state_OAJ(1) = 0.0;  // Assume zero angular acceleration initially
+  current_state_OAJ(2) = 0.0;  // Assume zero angular jerk initially
+
+  if (verbose_) {
+    std::cout << "[JPSPlannerPlugin] Setting current velocity state:" << std::endl;
+    std::cout << "  Linear velocity: " << current_state_VAJ(0) << " m/s" << std::endl;
+    std::cout << "  Angular velocity: " << current_state_OAJ(0) << " rad/s" << std::endl;
+  }
+
+  // 设置当前状态到JPS规划器
+  jps_planner_->setCurrentVelocityState(current_state_VAJ, current_state_OAJ);
+
   // Call JPS planner
   auto jps_start = std::chrono::steady_clock::now();
   bool success = jps_planner_->plan(start, goal);

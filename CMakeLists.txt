@@ -145,6 +145,7 @@ set(NAVSIM_PLANNING_SOURCES
     platform/src/core/algorithm_manager.cpp
     platform/src/core/websocket_visualizer.cpp
     platform/src/core/scenario_loader.cpp
+    platform/src/control/trajectory_tracker.cpp
     platform/src/viz/visualizer_factory.cpp
     platform/src/sim/local_simulator.cpp
 )
