@@ -454,15 +454,20 @@ void AlgorithmManager::performFullReset() {
 }
 
 bool AlgorithmManager::loadScenario(const std::string& scenario_file) {
+  std::cout << "[AlgorithmManager] ========================================" << std::endl;
+  std::cout << "[AlgorithmManager] loadScenario() called!" << std::endl;
   std::cout << "[AlgorithmManager] Loading scenario: " << scenario_file << std::endl;
 
   // 1. 检查文件是否存在
+  std::cout << "[AlgorithmManager] Checking if file exists..." << std::endl;
   std::ifstream file(scenario_file);
   if (!file.good()) {
-    std::cerr << "[AlgorithmManager] Scenario file not found: " << scenario_file << std::endl;
+    std::cerr << "[AlgorithmManager] ERROR: Scenario file not found: " << scenario_file << std::endl;
+    std::cerr << "[AlgorithmManager] Please check the file path and try again." << std::endl;
     return false;
   }
   file.close();
+  std::cout << "[AlgorithmManager] File exists, proceeding..." << std::endl;
 
   // 2. 停止当前仿真循环（如果正在运行）
   bool was_running = !simulation_should_stop_.load();

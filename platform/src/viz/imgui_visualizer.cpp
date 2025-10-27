@@ -1689,6 +1689,9 @@ void ImGuiVisualizer::renderDebugPanel() {
 
   // 按回车键或点击 Load 按钮都可以加载
   if ((enter_pressed || load_clicked) && strlen(scenario_path_input_) > 0) {
+    std::cout << "[ImGuiVisualizer] Load button clicked or Enter pressed!" << std::endl;
+    std::cout << "[ImGuiVisualizer] Input: " << scenario_path_input_ << std::endl;
+
     // 构建完整路径：../scenarios/ + 用户输入
     std::string filename = scenario_path_input_;
     std::string full_path;
@@ -1704,6 +1707,10 @@ void ImGuiVisualizer::renderDebugPanel() {
     scenario_path_request_ = full_path;
     has_scenario_load_request_ = true;
     std::cout << "[ImGuiVisualizer] Scenario load requested: " << scenario_path_request_ << std::endl;
+    std::cout << "[ImGuiVisualizer] has_scenario_load_request_ set to TRUE" << std::endl;
+
+    // 添加到按钮日志
+    addButtonLog("Load Scenario: " + full_path);
   }
 
   ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default dir: ../scenarios/");
@@ -2161,6 +2168,7 @@ bool ImGuiVisualizer::hasScenarioLoadRequest(std::string& scenario_path) {
   if (has_scenario_load_request_) {
     scenario_path = scenario_path_request_;
     has_scenario_load_request_ = false;  // 重置标志
+    std::cout << "[ImGuiVisualizer] hasScenarioLoadRequest() returning TRUE, path: " << scenario_path << std::endl;
     return true;
   }
   return false;
