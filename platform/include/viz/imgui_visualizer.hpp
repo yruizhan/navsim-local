@@ -81,6 +81,12 @@ public:
    */
   bool hasScenarioLoadRequest(std::string& scenario_path);
 
+  /**
+   * @brief 添加日志到按钮日志显示区域
+   * @param log 日志内容
+   */
+  void addLog(const std::string& log);
+
   // 🎮 仿真控制功能
   /**
    * @brief 设置仿真控制回调

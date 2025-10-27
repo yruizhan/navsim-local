@@ -1572,6 +1572,11 @@ void ImGuiVisualizer::addButtonLog(const std::string& log) {
   }
 }
 
+// 🔧 公共方法：添加日志到按钮日志显示区域
+void ImGuiVisualizer::addLog(const std::string& log) {
+  addButtonLog(log);
+}
+
 void ImGuiVisualizer::renderDebugPanel() {
   // 创建调试信息面板 - 右侧区域
   // 位置：紧贴 Scene View 右侧，宽度600，高度850（与场景区域高度一致）
@@ -1730,16 +1735,16 @@ void ImGuiVisualizer::renderDebugPanel() {
     std::cout << "[ImGuiVisualizer] Load button clicked or Enter pressed!" << std::endl;
     std::cout << "[ImGuiVisualizer] Input: " << scenario_path_input_ << std::endl;
 
-    // 构建完整路径：../scenarios/ + 用户输入
+    // 构建完整路径
     std::string filename = scenario_path_input_;
     std::string full_path;
 
-    // 如果用户输入的是完整路径（包含 / 或 ..），直接使用
-    if (filename.find('/') != std::string::npos || filename.find("..") != std::string::npos) {
+    // 如果用户输入的是绝对路径或包含路径分隔符，直接使用
+    if (filename[0] == '/' || filename.find("scenarios/") == 0) {
       full_path = filename;
     } else {
-      // 否则，在 ../scenarios/ 目录下查找
-      full_path = "../scenarios/" + filename;
+      // 否则，在 scenarios/ 目录下查找（相对于当前工作目录）
+      full_path = "scenarios/" + filename;
     }
 
     scenario_path_request_ = full_path;
@@ -1751,7 +1756,7 @@ void ImGuiVisualizer::renderDebugPanel() {
     addButtonLog("Load Scenario: " + full_path);
   }
 
-  ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default dir: ../scenarios/");
+  ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default dir: scenarios/");
   ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Example: map1.json or map2.json");
   ImGui::Separator();
 

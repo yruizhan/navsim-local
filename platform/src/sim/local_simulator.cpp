@@ -138,17 +138,36 @@ bool LocalSimulator::initialize(const SimulatorConfig& config) {
   return true;
 }
 
-bool LocalSimulator::load_scenario(const std::string& scenario_file) {
+bool LocalSimulator::load_scenario(const std::string& scenario_file,
+                                   std::function<void(const std::string&)> log_callback) {
   if (!impl_->initialized_) {
     std::cerr << "[LocalSimulator] Not initialized" << std::endl;
+    if (log_callback) log_callback("❌ Simulator not initialized");
     return false;
   }
+
+  std::cout << "[LocalSimulator] ========================================" << std::endl;
+  std::cout << "[LocalSimulator] Loading scenario: " << scenario_file << std::endl;
 
   // 使用现有的场景加载器
   planning::PlanningContext context;
   if (!planning::ScenarioLoader::loadFromFile(scenario_file, context)) {
     std::cerr << "[LocalSimulator] Failed to load scenario: " << scenario_file << std::endl;
+    if (log_callback) log_callback("❌ Failed to parse scenario file");
     return false;
+  }
+
+  std::cout << "[LocalSimulator] Scenario loaded into context" << std::endl;
+  std::cout << "[LocalSimulator] Context has bev_obstacles: " << (context.bev_obstacles ? "YES" : "NO") << std::endl;
+  if (context.bev_obstacles) {
+    std::cout << "[LocalSimulator] BEV circles: " << context.bev_obstacles->circles.size() << std::endl;
+    std::cout << "[LocalSimulator] BEV polygons: " << context.bev_obstacles->polygons.size() << std::endl;
+
+    // 🔧 添加日志到 UI
+    if (log_callback) {
+      log_callback("📊 Obstacles: " + std::to_string(context.bev_obstacles->circles.size()) +
+                   " circles, " + std::to_string(context.bev_obstacles->polygons.size()) + " polygons");
+    }
   }
 
   // 转换为 WorldState
@@ -158,18 +177,39 @@ bool LocalSimulator::load_scenario(const std::string& scenario_file) {
 
   // 转换动态障碍物
   impl_->world_state_.dynamic_obstacles = impl_->convert_dynamic_obstacles(context.dynamic_obstacles);
+  if (log_callback) {
+    log_callback("📍 Dynamic obstacles: " + std::to_string(impl_->world_state_.dynamic_obstacles.size()));
+  }
 
-  // 转换静态障碍物（从 BEV 数据）
+  // 🔧 转换静态障碍物（从 BEV 数据）
+  // 重要：即使没有 BEV 障碍物，也要清空旧的静态障碍物！
   if (context.bev_obstacles) {
+    std::cout << "[LocalSimulator] Converting BEV obstacles to static obstacles..." << std::endl;
     impl_->world_state_.static_obstacles = impl_->convert_static_obstacles(*context.bev_obstacles);
+    std::cout << "[LocalSimulator] Converted static obstacles: " << impl_->world_state_.static_obstacles.size() << std::endl;
+
+    if (log_callback) {
+      log_callback("✅ Converted " + std::to_string(impl_->world_state_.static_obstacles.size()) + " static obstacles");
+    }
+  } else {
+    std::cout << "[LocalSimulator] No BEV obstacles in context, clearing static obstacles" << std::endl;
+    impl_->world_state_.static_obstacles.clear();
+    if (log_callback) {
+      log_callback("⚠️  No obstacles in scenario, cleared old obstacles");
+    }
   }
 
   // 更新地图版本
   impl_->world_state_.map_version++;
+  std::cout << "[LocalSimulator] Map version updated to: " << impl_->world_state_.map_version << std::endl;
+  if (log_callback) {
+    log_callback("🗺️  Map version: " + std::to_string(impl_->world_state_.map_version));
+  }
 
   // 保存为初始状态
   impl_->initial_state_ = impl_->world_state_;
 
+  std::cout << "[LocalSimulator] ========================================" << std::endl;
   std::cout << "[LocalSimulator] Loaded scenario: " << scenario_file << std::endl;
   std::cout << "  Ego: (" << impl_->world_state_.ego_pose.x << ", "
             << impl_->world_state_.ego_pose.y << ", "
@@ -179,6 +219,18 @@ bool LocalSimulator::load_scenario(const std::string& scenario_file) {
             << impl_->world_state_.goal_pose.yaw << ")" << std::endl;
   std::cout << "  Dynamic obstacles: " << impl_->world_state_.dynamic_obstacles.size() << std::endl;
   std::cout << "  Static obstacles: " << impl_->world_state_.static_obstacles.size() << std::endl;
+
+  // 🔍 详细打印静态障碍物信息
+  for (size_t i = 0; i < impl_->world_state_.static_obstacles.size(); ++i) {
+    const auto& obs = impl_->world_state_.static_obstacles[i];
+    if (obs.type == StaticObstacle::Type::CIRCLE) {
+      std::cout << "    [" << i << "] Circle at (" << obs.circle.center.x << ", "
+                << obs.circle.center.y << "), r=" << obs.circle.radius << std::endl;
+    } else if (obs.type == StaticObstacle::Type::POLYGON) {
+      std::cout << "    [" << i << "] Polygon with " << obs.polygon.points.size() << " vertices" << std::endl;
+    }
+  }
+  std::cout << "[LocalSimulator] ========================================" << std::endl;
 
   // 调试：打印前3个动态障碍物的速度
   for (size_t i = 0; i < std::min(size_t(3), impl_->world_state_.dynamic_obstacles.size()); ++i) {
@@ -507,12 +559,16 @@ proto::WorldTick LocalSimulator::to_world_tick() const {
   if (!impl_->world_state_.static_obstacles.empty()) {
     auto* static_map = world_tick.mutable_static_map();
 
+    int circle_count = 0;
+    int polygon_count = 0;
+
     for (const auto& obs : impl_->world_state_.static_obstacles) {
       if (obs.type == StaticObstacle::Type::CIRCLE) {
         auto* circle = static_map->add_circles();
         circle->set_x(obs.circle.center.x);
         circle->set_y(obs.circle.center.y);
         circle->set_r(obs.circle.radius);
+        circle_count++;
       } else if (obs.type == StaticObstacle::Type::POLYGON) {
         auto* polygon = static_map->add_polygons();
         for (const auto& point : obs.polygon.points) {
@@ -521,7 +577,26 @@ proto::WorldTick LocalSimulator::to_world_tick() const {
           vertex->set_y(point.y);
           vertex->set_yaw(0.0);  // 多边形顶点没有朝向
         }
+        polygon_count++;
       }
+    }
+
+    // 🔍 调试日志：确认 to_world_tick() 返回的静态地图数据
+    static uint64_t last_logged_tick = 0;
+    if (world_tick.tick_id() % 30 == 0 && world_tick.tick_id() != last_logged_tick) {
+      std::cout << "[LocalSimulator::to_world_tick] tick_id=" << world_tick.tick_id()
+                << ", map_version=" << impl_->world_state_.map_version
+                << ", circles=" << circle_count
+                << ", polygons=" << polygon_count << std::endl;
+      last_logged_tick = world_tick.tick_id();
+    }
+  } else {
+    // 🔍 调试日志：没有静态障碍物
+    static uint64_t last_logged_tick_empty = 0;
+    if (world_tick.tick_id() % 30 == 0 && world_tick.tick_id() != last_logged_tick_empty) {
+      std::cout << "[LocalSimulator::to_world_tick] tick_id=" << world_tick.tick_id()
+                << ", NO STATIC OBSTACLES" << std::endl;
+      last_logged_tick_empty = world_tick.tick_id();
     }
   }
 

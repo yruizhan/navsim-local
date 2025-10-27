@@ -156,9 +156,11 @@ public:
   /**
    * @brief 从场景文件加载
    * @param scenario_file JSON场景文件路径
+   * @param log_callback 可选的日志回调函数，用于向 UI 添加日志
    * @return 是否成功
    */
-  bool load_scenario(const std::string& scenario_file);
+  bool load_scenario(const std::string& scenario_file,
+                     std::function<void(const std::string&)> log_callback = nullptr);
 
   /**
    * @brief 获取当前配置

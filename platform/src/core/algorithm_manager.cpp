@@ -458,56 +458,71 @@ bool AlgorithmManager::loadScenario(const std::string& scenario_file) {
   std::cout << "[AlgorithmManager] loadScenario() called!" << std::endl;
   std::cout << "[AlgorithmManager] Loading scenario: " << scenario_file << std::endl;
 
+  // 🔧 添加日志到 UI
+  auto addUILog = [this](const std::string& msg) {
+    if (visualizer_) {
+      // 尝试转换为 ImGuiVisualizer
+      auto* imgui_viz = dynamic_cast<viz::ImGuiVisualizer*>(visualizer_.get());
+      if (imgui_viz) {
+        imgui_viz->addLog(msg);
+      }
+    }
+  };
+
+  addUILog("🔄 Loading scenario: " + scenario_file);
+
   // 1. 检查文件是否存在
   std::cout << "[AlgorithmManager] Checking if file exists..." << std::endl;
   std::ifstream file(scenario_file);
   if (!file.good()) {
     std::cerr << "[AlgorithmManager] ERROR: Scenario file not found: " << scenario_file << std::endl;
     std::cerr << "[AlgorithmManager] Please check the file path and try again." << std::endl;
+    addUILog("❌ ERROR: File not found!");
     return false;
   }
   file.close();
   std::cout << "[AlgorithmManager] File exists, proceeding..." << std::endl;
+  addUILog("✅ File found, loading...");
 
-  // 2. 停止当前仿真循环（如果正在运行）
-  bool was_running = !simulation_should_stop_.load();
-  if (was_running) {
-    std::cout << "[AlgorithmManager] Stopping current simulation..." << std::endl;
-    stop_simulation_loop();
-    // 等待仿真循环停止
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
+  // 2. 🔧 不要停止仿真循环，只是暂停仿真
+  // 保存当前状态
+  bool was_paused = simulation_paused_.load();
+
+  // 暂停仿真（但不停止循环）
+  simulation_paused_.store(true);
+
+  // 等待当前帧完成
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   // 3. 执行完整的系统重置
+  addUILog("🔄 Resetting system...");
   performFullReset();
 
   // 4. 重新加载场景到仿真器
   if (local_simulator_) {
     std::cout << "[AlgorithmManager] Loading scenario into simulator..." << std::endl;
-    if (!local_simulator_->load_scenario(scenario_file)) {
+    addUILog("🔄 Loading into simulator...");
+    if (!local_simulator_->load_scenario(scenario_file, addUILog)) {
       std::cerr << "[AlgorithmManager] Failed to load scenario into simulator" << std::endl;
+      addUILog("❌ Failed to load scenario!");
       return false;
     }
   } else {
     std::cerr << "[AlgorithmManager] No local simulator available" << std::endl;
+    addUILog("❌ No simulator available!");
     return false;
   }
 
   // 5. 保存当前场景文件路径
   current_scenario_file_ = scenario_file;
 
-  // 6. 重新开始仿真（如果之前在运行）
-  if (was_running) {
-    std::cout << "[AlgorithmManager] Restarting simulation with new scenario..." << std::endl;
-    simulation_should_stop_.store(false);
-    // 注意：这里不调用 run_simulation_loop()，因为它会阻塞
-    // 仿真循环会在下一次迭代时自动继续
-  }
-
-  // 7. 加载新场景后默认暂停，等待用户点击 Start
+  // 6. 加载新场景后默认暂停，等待用户点击 Start
   simulation_paused_.store(true);
 
   std::cout << "[AlgorithmManager] Scenario loaded successfully: " << scenario_file << std::endl;
+  std::cout << "[AlgorithmManager] Simulation paused, click START to begin" << std::endl;
+  addUILog("✅ Scenario loaded successfully!");
+  addUILog("ℹ️  Click START to begin simulation");
   return true;
 }
 
@@ -859,9 +874,46 @@ bool AlgorithmManager::run_simulation_loop(const std::atomic<bool>* external_int
 
     // 🎮 检查仿真是否暂停
     if (simulation_paused_.load()) {
-      // 暂停时仍然渲染可视化界面，但不执行仿真步进
+      // 暂停时仍然渲染可视化界面，并显示当前世界状态
       if (visualizer_) {
         visualizer_->beginFrame();
+
+        // 🔧 即使暂停，也要显示当前世界状态（特别是加载新场景后）
+        const auto& world_state = local_simulator_->get_world_state();
+
+        // 更新仿真时间
+        double sim_time = local_simulator_->get_simulation_time();
+        std::ostringstream time_stream;
+        time_stream << std::fixed << std::setprecision(3) << sim_time << "s";
+        visualizer_->showDebugInfo("Simulation Time", time_stream.str());
+        visualizer_->showDebugInfo("Frame ID", std::to_string(local_simulator_->get_frame_id()));
+
+        // 转换为protobuf格式并更新可视化
+        auto world_tick = local_simulator_->to_world_tick();
+
+        // 创建前置处理管线并处理
+        perception::PreprocessingPipeline preprocessing_pipeline;
+        plugin::PerceptionInput perception_input = preprocessing_pipeline.process(world_tick);
+
+        // 更新可视化器的世界数据
+        visualizer_->drawEgo(perception_input.ego);
+        visualizer_->drawGoal(perception_input.task.goal_pose);
+        visualizer_->drawBEVObstacles(perception_input.bev_obstacles);
+        visualizer_->drawDynamicObstacles(perception_input.dynamic_obstacles);
+
+        // 如果有感知插件，也处理一下以获取栅格地图
+        planning::PlanningContext context;
+        context.ego = perception_input.ego;
+        context.task = perception_input.task;
+        context.dynamic_obstacles = perception_input.dynamic_obstacles;
+
+        if (perception_plugin_manager_->process(perception_input, context)) {
+          visualizer_->updatePlanningContext(context);
+          if (context.occupancy_grid) {
+            visualizer_->drawOccupancyGrid(*context.occupancy_grid);
+          }
+        }
+
         visualizer_->showDebugInfo("Simulation Status", "PAUSED");
         visualizer_->endFrame();
       }
