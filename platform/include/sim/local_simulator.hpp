@@ -228,6 +228,11 @@ public:
   void set_ego_twist(const planning::Twist2d& twist);
 
   /**
+   * @brief 直接应用自车状态（用于轨迹回放）
+   */
+  void apply_ego_state(const planning::Pose2d& pose, const planning::Twist2d& twist);
+
+  /**
    * @brief 设置目标位置
    * @param pose 目标位姿
    */

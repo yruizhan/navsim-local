@@ -369,6 +369,11 @@ void LocalSimulator::set_ego_twist(const planning::Twist2d& twist) {
   impl_->world_state_.ego_twist = twist;
 }
 
+void LocalSimulator::apply_ego_state(const planning::Pose2d& pose, const planning::Twist2d& twist) {
+  impl_->world_state_.ego_pose = pose;
+  impl_->world_state_.ego_twist = twist;
+}
+
 void LocalSimulator::set_goal_pose(const planning::Pose2d& pose) {
   impl_->world_state_.goal_pose = pose;
   std::cout << "[LocalSimulator] Set goal pose: (" << pose.x << ", " << pose.y << ", " << pose.yaw << ")" << std::endl;

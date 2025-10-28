@@ -8,6 +8,7 @@
 #include <memory>
 #include <chrono>
 #include <string>
+#include <optional>
 
 // 前向声明
 namespace navsim {
@@ -20,6 +21,7 @@ namespace viz {
 }
 namespace sim {
   class LocalSimulator;
+  struct WorldState;
 }
 }
 
@@ -55,6 +57,9 @@ public:
     double grid_map_height = 100.0;        // 栅格地图高度 (m)
     double grid_resolution = 0.1;          // 栅格分辨率 (m/cell)
     double grid_inflation_radius = 0.5;    // 膨胀半径 (m)
+
+    // 播放配置
+    double playback_time_step = 0.03;          // 轨迹回放每步时间 (s)
   };
 
   AlgorithmManager();
@@ -245,6 +250,20 @@ private:
   std::string connection_label_;
   std::string active_config_file_;
 
+  // 播放模式状态
+  double playback_elapsed_time_ = 0.0;
+  bool playback_active_ = false;
+  std::optional<uint64_t> playback_last_plan_tick_id_;
+  bool goal_reached_ = false;
+  struct PlaybackPlanSignature {
+    std::size_t point_count = 0;
+    double last_t = 0.0;
+    double last_x = 0.0;
+    double last_y = 0.0;
+    double last_yaw = 0.0;
+  };
+  std::optional<PlaybackPlanSignature> playback_plan_signature_;
+
   // 仿真状态
   std::atomic<bool> simulation_started_{false};
   std::atomic<bool> simulation_should_stop_{false};
@@ -254,6 +273,7 @@ private:
   // 内部函数
   void setupPluginSystem();
   void updateStatistics(double total_time, double perception_time, double planning_time, bool success);
+  bool isGoalReached(const sim::WorldState& world_state) const;
 };
 
 } // namespace navsim

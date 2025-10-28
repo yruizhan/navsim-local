@@ -13,12 +13,28 @@
 #include "viz/imgui_visualizer.hpp"
 #include "sim/local_simulator.hpp"
 #include "control/trajectory_tracker.hpp"
+#include <algorithm>
 #include <iostream>
 #include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <thread>
 #include <atomic>
+#include <cmath>
+
+namespace {
+constexpr double kPi = 3.14159265358979323846;
+
+double normalizeAngleRad(double angle) {
+  while (angle > kPi) {
+    angle -= 2.0 * kPi;
+  }
+  while (angle < -kPi) {
+    angle += 2.0 * kPi;
+  }
+  return angle;
+}
+}  // namespace
 
 namespace navsim {
 
@@ -36,7 +52,7 @@ bool AlgorithmManager::initialize() {
 
     // 初始化轨迹跟踪器
     control::TrajectoryTracker::Config tracker_config;
-    tracker_config.mode = control::TrajectoryTracker::TrackingMode::HYBRID;
+    tracker_config.mode = control::TrajectoryTracker::TrackingMode::PLAYBACK; //配置跟踪模式
     tracker_config.lookahead_time = 0.3;
     tracker_config.lookahead_distance = 1.0;
     tracker_config.enable_quality_assessment = true;
@@ -441,6 +457,14 @@ void AlgorithmManager::reset() {
     trajectory_tracker_->reset();
   }
 
+  // 重置播放状态
+  playback_active_ = false;
+  playback_elapsed_time_ = 0.0;
+  playback_last_plan_tick_id_.reset();
+  goal_reached_ = false;
+  playback_plan_signature_.reset();
+
+  simulation_started_.store(false);
   // 重置统计信息
   resetStatistics();
 
@@ -546,6 +570,9 @@ bool AlgorithmManager::loadScenario(const std::string& scenario_file) {
 }
 
 void AlgorithmManager::startSimulation() {
+  goal_reached_ = false;
+  playback_plan_signature_.reset();
+  simulation_started_.store(true);
   simulation_paused_.store(false);
   std::cout << "[AlgorithmManager] Simulation started/resumed" << std::endl;
 
@@ -564,6 +591,7 @@ void AlgorithmManager::startSimulation() {
 }
 
 void AlgorithmManager::pauseSimulation() {
+  simulation_started_.store(false);
   simulation_paused_.store(true);
   std::cout << "[AlgorithmManager] Simulation paused" << std::endl;
 
@@ -651,6 +679,41 @@ void AlgorithmManager::updateStatistics(double total_time, double perception_tim
 
   stats_.avg_planning_time_ms =
     stats_.avg_planning_time_ms * (1.0 - alpha) + planning_time * alpha;
+}
+
+bool AlgorithmManager::isGoalReached(const sim::WorldState& world_state) const {
+  double pos_tol = world_state.goal_tolerance_pos > 1e-6
+    ? world_state.goal_tolerance_pos
+    : 0.3;
+  double yaw_tol = world_state.goal_tolerance_yaw > 1e-6
+    ? world_state.goal_tolerance_yaw
+    : 0.2;
+
+  double dx = world_state.ego_pose.x - world_state.goal_pose.x;
+  double dy = world_state.ego_pose.y - world_state.goal_pose.y;
+  double distance = std::hypot(dx, dy);
+
+  double yaw_error = std::fabs(normalizeAngleRad(
+      world_state.ego_pose.yaw - world_state.goal_pose.yaw));
+
+  if (distance > pos_tol) {
+    // 若位置略超出容差但车速已接近 0，则认为已到达
+    double speed = std::hypot(world_state.ego_twist.vx, world_state.ego_twist.vy);
+    if (distance <= pos_tol + 0.15 && speed < 0.05) {
+      return true;
+    }
+    return false;
+  }
+
+  // 位置已满足容差，姿态/速度任意条件满足即可认定到达
+  if (yaw_tol < 1e-6 || yaw_error <= yaw_tol) {
+    return true;
+  }
+
+  // 允许姿态稍有偏差，只要车辆已基本停止
+  double speed = std::hypot(world_state.ego_twist.vx, world_state.ego_twist.vy);
+  double angular_speed = std::fabs(world_state.ego_twist.omega);
+  return speed < 0.05 && angular_speed < 0.05;
 }
 
 void AlgorithmManager::setupPluginSystem() {
@@ -841,11 +904,16 @@ bool AlgorithmManager::run_simulation_loop(const std::atomic<bool>* external_int
   // 重置停止标志
   simulation_should_stop_.store(false);
 
-  // 设置仿真已开始标志（本地仿真模式自动开始）
-  simulation_started_.store(true);
-
-  // 启动仿真
-  local_simulator_->start();
+  // 初始状态：仿真未开始、处于暂停
+  simulation_started_.store(false);
+  simulation_paused_.store(true);
+  goal_reached_ = false;
+  playback_active_ = false;
+  playback_elapsed_time_ = 0.0;
+  playback_plan_signature_.reset();
+  if (local_simulator_) {
+    local_simulator_->pause();
+  }
 
   // 仿真主循环
   const double target_frequency = 30.0;  // 30Hz 主循环
@@ -939,6 +1007,7 @@ bool AlgorithmManager::run_simulation_loop(const std::atomic<bool>* external_int
 
       // 短暂休眠避免CPU占用过高
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      last_step_time = std::chrono::steady_clock::now();
       continue;  // 跳过本次循环，不执行仿真步进
     }
 
@@ -1020,7 +1089,18 @@ bool AlgorithmManager::process_simulation_step(double dt) {
 
   bool planning_success = process(world_tick, deadline, plan_update, ego_cmd);
 
+  double current_sim_time = local_simulator_->get_simulation_time();
+
   // 4. 将规划结果应用到仿真器
+  planning::Pose2d playback_target_pose{};
+  planning::Twist2d playback_target_twist{};
+  planning::Twist2d control_command_for_log{};
+  bool playback_apply_state = false;
+  bool control_command_valid = false;
+  double playback_duration = 0.0;
+  bool tracker_playback_mode =
+    trajectory_tracker_->getConfig().mode == control::TrajectoryTracker::TrackingMode::PLAYBACK;
+
   if (planning_success && plan_update.trajectory_size() > 0) {
     // 🔧 调试：打印前几个轨迹点的速度
     static bool first_print = true;
@@ -1038,8 +1118,55 @@ bool AlgorithmManager::process_simulation_step(double dt) {
     // 🚗 使用改进的轨迹跟踪器
 
     // 获取当前仿真时间并设置新轨迹
-    double current_sim_time = local_simulator_->get_simulation_time();
-    trajectory_tracker_->setTrajectoryFromProto(plan_update, current_sim_time);
+    double trajectory_start_time = tracker_playback_mode ? 0.0 : current_sim_time;
+
+    double playback_query_time = tracker_playback_mode ? playback_elapsed_time_ : current_sim_time;
+
+    if (tracker_playback_mode) {
+      playback_active_ = true;
+
+      bool plan_changed = true;
+      PlaybackPlanSignature new_signature{};
+      if (plan_update.trajectory_size() > 0) {
+        const auto& last = plan_update.trajectory(plan_update.trajectory_size() - 1);
+        new_signature.point_count = static_cast<std::size_t>(plan_update.trajectory_size());
+        new_signature.last_t = last.t();
+        new_signature.last_x = last.x();
+        new_signature.last_y = last.y();
+        new_signature.last_yaw = last.yaw();
+      }
+
+      if (playback_plan_signature_) {
+        const auto& existing = *playback_plan_signature_;
+        if (existing.point_count == new_signature.point_count &&
+            std::abs(existing.last_t - new_signature.last_t) < 1e-6 &&
+            std::abs(existing.last_x - new_signature.last_x) < 1e-4 &&
+            std::abs(existing.last_y - new_signature.last_y) < 1e-4 &&
+            std::abs(normalizeAngleRad(existing.last_yaw - new_signature.last_yaw)) < 1e-3) {
+          plan_changed = false;
+        }
+      } else if (new_signature.point_count == 0) {
+        plan_changed = false;
+      }
+
+      if (plan_changed) {
+        playback_elapsed_time_ = 0.0;
+        playback_plan_signature_ = new_signature;
+        playback_last_plan_tick_id_ = plan_update.tick_id();
+        goal_reached_ = false;
+      }
+
+      playback_query_time = playback_elapsed_time_;
+    } else {
+      playback_active_ = false;
+      playback_elapsed_time_ = 0.0;
+      playback_last_plan_tick_id_.reset();
+      playback_plan_signature_.reset();
+    }
+
+    trajectory_tracker_->setTrajectoryFromProto(plan_update, trajectory_start_time);
+    playback_duration = tracker_playback_mode ? trajectory_tracker_->getTrajectoryDuration() : 0.0;
+    double playback_time_step = config_.playback_time_step;
 
     // 🔍 轨迹设置调试信息
     if (config_.verbose_logging && world_state.frame_id % 60 == 0) {  // 每2秒打印一次
@@ -1055,26 +1182,51 @@ bool AlgorithmManager::process_simulation_step(double dt) {
       std::cout << "  跟踪器有效轨迹: " << (trajectory_tracker_->hasValidTrajectory() ? "是" : "否") << std::endl;
     }
 
-    // 使用跟踪器计算控制指令
-    planning::Twist2d new_twist = trajectory_tracker_->getControlCommand(current_sim_time);
-
-    // 获取当前世界状态用于质量评估
     const auto& current_world_state = local_simulator_->get_world_state();
 
-    // 更新轨迹跟踪质量评估
-    trajectory_tracker_->updateQualityAssessment(
-        current_world_state.ego_pose,
-        current_world_state.ego_twist,
-        current_sim_time
-    );
+    if (tracker_playback_mode) {
+      auto target_state = trajectory_tracker_->getTargetState(playback_query_time);
 
-    // 应用控制指令
-    local_simulator_->set_ego_twist(new_twist);
+      playback_target_pose.x = target_state.pose.x;
+      playback_target_pose.y = target_state.pose.y;
+      playback_target_pose.yaw = target_state.pose.yaw;
+
+      playback_target_twist.vx = target_state.twist.vx;
+      playback_target_twist.vy = target_state.twist.vy;
+      playback_target_twist.omega = target_state.twist.omega;
+
+      trajectory_tracker_->updateQualityAssessment(
+          playback_target_pose,
+          playback_target_twist,
+          playback_query_time
+      );
+
+      playback_apply_state = true;
+      control_command_for_log = playback_target_twist;
+      control_command_valid = true;
+    } else {
+      // 使用跟踪器计算控制指令
+      planning::Twist2d new_twist = trajectory_tracker_->getControlCommand(current_sim_time);
+
+      // 更新轨迹跟踪质量评估
+      trajectory_tracker_->updateQualityAssessment(
+          current_world_state.ego_pose,
+          current_world_state.ego_twist,
+          current_sim_time
+      );
+
+      // 应用控制指令
+      local_simulator_->set_ego_twist(new_twist);
+      control_command_for_log = new_twist;
+      control_command_valid = true;
+    }
 
     // 显示轨迹跟踪质量信息
     if (visualizer_) {
       const auto& quality = trajectory_tracker_->getQualityMetrics();
       const auto& tracking_state = trajectory_tracker_->getTrackingState();
+      const auto& ego_pose_for_viz = playback_apply_state ? playback_target_pose : current_world_state.ego_pose;
+      const auto& ego_twist_for_viz = playback_apply_state ? playback_target_twist : current_world_state.ego_twist;
 
       // 实时质量指标显示
       visualizer_->showDebugInfo("=== Trajectory Tracking ===", "");
@@ -1090,7 +1242,7 @@ bool AlgorithmManager::process_simulation_step(double dt) {
           std::to_string(static_cast<int>(quality.overall_score)) + "/100");
 
       // 轨迹完成度
-      double completion = trajectory_tracker_->getCompletionPercentage(current_sim_time);
+      double completion = trajectory_tracker_->getCompletionPercentage(tracker_playback_mode ? playback_query_time : current_sim_time);
       visualizer_->showDebugInfo("Trajectory Progress",
           std::to_string(static_cast<int>(completion)) + "%");
 
@@ -1101,11 +1253,11 @@ bool AlgorithmManager::process_simulation_step(double dt) {
       visualizer_->showDebugInfo("Constraints", constraint_status);
 
       // 🎯 绘制轨迹跟踪状态可视化
-      auto target_state = trajectory_tracker_->getTargetState(current_sim_time);
-      planning::Pose2d target_pose{target_state.pose.x, target_state.pose.y, target_state.pose.yaw};
+      auto target_state = trajectory_tracker_->getTargetState(tracker_playback_mode ? playback_query_time : current_sim_time);
+      planning::Pose2d target_pose(target_state.pose.x, target_state.pose.y, target_state.pose.yaw);
 
       visualizer_->drawTrajectoryTracking(
-        current_world_state.ego_pose,
+        ego_pose_for_viz,
         target_pose,
         target_state,
         quality.position_error,
@@ -1115,7 +1267,7 @@ bool AlgorithmManager::process_simulation_step(double dt) {
 
     if (config_.verbose_logging && world_state.frame_id % 30 == 0) {  // 每秒打印一次
       const auto& quality = trajectory_tracker_->getQualityMetrics();
-      auto target_state = trajectory_tracker_->getTargetState(current_sim_time);
+      auto target_state = trajectory_tracker_->getTargetState(tracker_playback_mode ? playback_query_time : current_sim_time);
 
       std::cout << "[AlgorithmManager] Step " << world_state.frame_id
                 << ": Planning success, " << plan_update.trajectory_size()
@@ -1123,22 +1275,24 @@ bool AlgorithmManager::process_simulation_step(double dt) {
 
       // 🔍 详细的轨迹跟踪调试信息
       std::cout << "=== 轨迹跟踪状态调试 ===" << std::endl;
-      std::cout << "  仿真时间: " << current_sim_time << " s" << std::endl;
-      std::cout << "  实际位置: (" << current_world_state.ego_pose.x << ", "
-                << current_world_state.ego_pose.y << ", "
-                << current_world_state.ego_pose.yaw << ")" << std::endl;
+      std::cout << "  仿真时间: " << (tracker_playback_mode ? playback_query_time : current_sim_time) << " s" << std::endl;
+      std::cout << "  实际位置: (" << (playback_apply_state ? playback_target_pose.x : current_world_state.ego_pose.x) << ", "
+                << (playback_apply_state ? playback_target_pose.y : current_world_state.ego_pose.y) << ", "
+                << (playback_apply_state ? playback_target_pose.yaw : current_world_state.ego_pose.yaw) << ")" << std::endl;
       std::cout << "  目标位置: (" << target_state.pose.x << ", "
                 << target_state.pose.y << ", "
                 << target_state.pose.yaw << ")" << std::endl;
-      std::cout << "  实际速度: vx=" << current_world_state.ego_twist.vx
-                << ", vy=" << current_world_state.ego_twist.vy
-                << ", omega=" << current_world_state.ego_twist.omega << std::endl;
+      std::cout << "  实际速度: vx=" << (playback_apply_state ? playback_target_twist.vx : current_world_state.ego_twist.vx)
+                << ", vy=" << (playback_apply_state ? playback_target_twist.vy : current_world_state.ego_twist.vy)
+                << ", omega=" << (playback_apply_state ? playback_target_twist.omega : current_world_state.ego_twist.omega) << std::endl;
       std::cout << "  目标速度: vx=" << target_state.twist.vx
                 << ", vy=" << target_state.twist.vy
                 << ", omega=" << target_state.twist.omega << std::endl;
-      std::cout << "  控制指令: vx=" << new_twist.vx
-                << ", vy=" << new_twist.vy
-                << ", omega=" << new_twist.omega << std::endl;
+      if (control_command_valid) {
+        std::cout << "  控制指令: vx=" << control_command_for_log.vx
+                  << ", vy=" << control_command_for_log.vy
+                  << ", omega=" << control_command_for_log.omega << std::endl;
+      }
       std::cout << "  跟踪质量:" << std::endl;
       std::cout << "    位置误差: " << quality.position_error * 1000 << " mm" << std::endl;
       std::cout << "    速度误差: " << quality.velocity_error * 1000 << " mm/s" << std::endl;
@@ -1150,7 +1304,7 @@ bool AlgorithmManager::process_simulation_step(double dt) {
       if (!trajectory_tracker_->hasValidTrajectory()) {
         std::cout << "  ⚠️  警告: 轨迹跟踪器没有有效轨迹!" << std::endl;
       } else {
-        double completion = trajectory_tracker_->getCompletionPercentage(current_sim_time);
+        double completion = trajectory_tracker_->getCompletionPercentage(tracker_playback_mode ? playback_query_time : current_sim_time);
         std::cout << "  轨迹完成度: " << completion << "%" << std::endl;
         std::cout << "  轨迹总时长: " << trajectory_tracker_->getTrajectoryDuration() << " s" << std::endl;
       }
@@ -1159,13 +1313,103 @@ bool AlgorithmManager::process_simulation_step(double dt) {
   }
 
   // 5. 执行仿真步进（应用新的状态）
-  if (!local_simulator_->step(dt)) {
-    std::cerr << "[AlgorithmManager] Simulator step failed" << std::endl;
-    // 🎨 即使失败也要结束帧
-    if (visualizer_) {
-      visualizer_->endFrame();
+  bool playback_step_mode = playback_apply_state && tracker_playback_mode;
+
+  if (playback_step_mode) {
+    double duration = playback_duration;
+    if (duration <= 0.0) {
+      duration = trajectory_tracker_->getTrajectoryDuration();
     }
-    return false;
+    double step_dt = std::max(1e-4, config_.playback_time_step);
+    double total_time_to_play = std::min(dt, duration - playback_elapsed_time_);
+    double remaining_time_in_step = total_time_to_play;
+
+    while (remaining_time_in_step > 1e-9) {
+      double use_dt = std::min(remaining_time_in_step, step_dt);
+      remaining_time_in_step -= use_dt;
+
+      if (!local_simulator_->step(use_dt)) {
+        std::cerr << "[AlgorithmManager] Simulator step failed" << std::endl;
+        if (visualizer_) {
+          visualizer_->endFrame();
+        }
+        return false;
+      }
+
+      playback_elapsed_time_ += use_dt;
+      playback_elapsed_time_ = std::min(playback_elapsed_time_, duration);
+
+      auto post_step_state = trajectory_tracker_->getTargetState(playback_elapsed_time_);
+
+      playback_target_pose.x = post_step_state.pose.x;
+      playback_target_pose.y = post_step_state.pose.y;
+      playback_target_pose.yaw = post_step_state.pose.yaw;
+
+      playback_target_twist.vx = post_step_state.twist.vx;
+      playback_target_twist.vy = post_step_state.twist.vy;
+      playback_target_twist.omega = post_step_state.twist.omega;
+
+      local_simulator_->apply_ego_state(playback_target_pose, playback_target_twist);
+
+      if (playback_elapsed_time_ >= duration) {
+        playback_active_ = false;
+        break;
+      }
+    }
+
+    playback_elapsed_time_ = std::min(playback_elapsed_time_, duration);
+
+    trajectory_tracker_->updateQualityAssessment(
+        playback_target_pose,
+        playback_target_twist,
+        playback_elapsed_time_
+    );
+
+    if (duration > 0.0 && (duration - playback_elapsed_time_) <= 1e-4) {
+      playback_elapsed_time_ = duration;
+      playback_active_ = false;
+      goal_reached_ = true;
+      if (!simulation_paused_.load()) {
+        pauseSimulation();
+      }
+      if (visualizer_) {
+        visualizer_->showDebugInfo("Goal", "Trajectory completed");
+        visualizer_->showDebugInfo("Simulation Status", "Playback finished");
+        if (auto* imgui_viz = dynamic_cast<viz::ImGuiVisualizer*>(visualizer_.get())) {
+          imgui_viz->addLog("✅ Trajectory playback completed, simulation paused");
+        }
+      }
+    }
+  } else {
+    if (!local_simulator_->step(dt)) {
+      std::cerr << "[AlgorithmManager] Simulator step failed" << std::endl;
+      if (visualizer_) {
+        visualizer_->endFrame();
+      }
+      return false;
+    }
+  }
+
+  if (local_simulator_) {
+    const auto& updated_world_state = local_simulator_->get_world_state();
+    if (!goal_reached_ && isGoalReached(updated_world_state)) {
+      goal_reached_ = true;
+      playback_active_ = false;
+      playback_elapsed_time_ = 0.0;
+      playback_last_plan_tick_id_.reset();
+      if (trajectory_tracker_) {
+        trajectory_tracker_->reset();
+      }
+      std::cout << "[AlgorithmManager] Goal reached. Pausing simulation." << std::endl;
+      pauseSimulation();
+      if (visualizer_) {
+        visualizer_->showDebugInfo("Goal", "Reached");
+        visualizer_->showDebugInfo("Simulation Status", "Goal reached");
+        if (auto* imgui_viz = dynamic_cast<viz::ImGuiVisualizer*>(visualizer_.get())) {
+          imgui_viz->addLog("✅ Goal reached, simulation paused");
+        }
+      }
+    }
   }
 
   // 🎨 结束可视化帧

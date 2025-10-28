@@ -69,7 +69,8 @@ public:
         TIME_SYNC,        // 时间同步插值
         LOOKAHEAD,        // 前瞻控制
         PREDICTIVE,       // 预测控制
-        HYBRID            // 混合策略
+        HYBRID,           // 混合策略
+        PLAYBACK          // 轨迹回放，用规划轨迹直接驱动
     };
 
     struct Config {
@@ -234,6 +235,11 @@ private:
     planning::Twist2d lookaheadControl(double trajectory_time);
 
     /**
+     * @brief 轨迹回放控制（直接使用轨迹给定的速度）
+     */
+    planning::Twist2d playbackControl(double trajectory_time);
+
+    /**
      * @brief 查找最近的轨迹点
      */
     size_t findClosestTrajectoryPoint(const planning::Pose2d& current_pose) const;
@@ -313,6 +319,17 @@ private:
      * @brief 获取指定索引对应的修正航向
      */
     double getEffectiveYaw(size_t index) const;
+
+    /**
+     * @brief 确保轨迹时间戳单调，如检测到无效时间则重建
+     */
+    void ensureMonotonicTrajectoryTimebase();
+
+    /**
+     * @brief 基于轨迹段运动估计时间增量
+     */
+    double estimateSegmentDuration(const plugin::TrajectoryPoint& prev,
+                                   const plugin::TrajectoryPoint& curr) const;
 
 private:
     Config config_;

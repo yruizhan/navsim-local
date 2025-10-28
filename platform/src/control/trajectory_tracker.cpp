@@ -29,11 +29,14 @@ void TrajectoryTracker::setTrajectory(const std::vector<plugin::TrajectoryPoint>
     has_trajectory_ = !trajectory_.empty();
 
     if (has_trajectory_) {
-        // 验证轨迹时间单调性
+        ensureMonotonicTrajectoryTimebase();
+
+        // 验证轨迹时间单调性（修正后仍异常时提示）
         for (size_t i = 1; i < trajectory_.size(); ++i) {
-            if (trajectory_[i].time_from_start <= trajectory_[i-1].time_from_start) {
+            if (trajectory_[i].time_from_start < trajectory_[i-1].time_from_start - 1e-6) {
                 std::cerr << "[TrajectoryTracker] Warning: Non-monotonic trajectory times at index "
                          << i << std::endl;
+                break;
             }
         }
 
@@ -151,11 +154,24 @@ planning::Twist2d TrajectoryTracker::getControlCommand(double sim_time) {
             command = lookaheadControl(trajectory_time);
             break;
 
+        case TrackingMode::PLAYBACK:
+            command = playbackControl(trajectory_time);
+            break;
+
         case TrackingMode::HYBRID:
         default:
             // 由于轨迹会频繁更新，直接使用前瞻控制避免起步阶段停滞
             command = lookaheadControl(trajectory_time);
             break;
+    }
+
+    if (config_.mode == TrackingMode::PLAYBACK) {
+        last_command_ = command;
+        command_history_.push_back(command);
+        if (command_history_.size() > 100) {
+            command_history_.erase(command_history_.begin());
+        }
+        return command;
     }
 
     bool reverse_mode = config_.enable_reverse_tracking && isReverseAtTime(trajectory_time);
@@ -421,6 +437,11 @@ planning::Twist2d TrajectoryTracker::lookaheadControl(double trajectory_time) {
     return target_state.twist;
 }
 
+planning::Twist2d TrajectoryTracker::playbackControl(double trajectory_time) {
+    auto target_state = getTargetStateAtTrajectoryTime(trajectory_time);
+    return target_state.twist;
+}
+
 size_t TrajectoryTracker::findClosestTrajectoryPoint(const planning::Pose2d& current_pose) const {
     if (trajectory_.empty()) return 0;
 
@@ -496,6 +517,104 @@ double TrajectoryTracker::getEffectiveYaw(size_t index) const {
         return normalizeAngle(trajectory_[index].pose.yaw);
     }
     return 0.0;
+}
+
+void TrajectoryTracker::ensureMonotonicTrajectoryTimebase() {
+    if (trajectory_.empty()) {
+        return;
+    }
+
+    if (trajectory_.size() == 1) {
+        trajectory_.front().time_from_start = 0.0;
+        return;
+    }
+
+    double offset = trajectory_.front().time_from_start;
+    if (std::isfinite(offset) && std::abs(offset) > 1e-6) {
+        for (auto& point : trajectory_) {
+            point.time_from_start -= offset;
+        }
+    }
+
+    bool non_decreasing = true;
+    bool has_positive_delta = false;
+    double prev_time = trajectory_.front().time_from_start;
+
+    for (size_t i = 1; i < trajectory_.size(); ++i) {
+        double current = trajectory_[i].time_from_start;
+        double delta = current - prev_time;
+
+        if (delta < -1e-4) {
+            non_decreasing = false;
+            break;
+        }
+
+        if (delta < 0.0) {
+            trajectory_[i].time_from_start = prev_time;
+            delta = 0.0;
+        }
+
+        if (delta > 1e-4) {
+            has_positive_delta = true;
+        }
+
+        prev_time = trajectory_[i].time_from_start;
+    }
+
+    if (non_decreasing && has_positive_delta) {
+        return;
+    }
+
+    const char* mode_label = (config_.mode == TrackingMode::PLAYBACK) ? "playback" : "trajectory";
+    std::cout << "[TrajectoryTracker] Rebuilding " << mode_label
+              << " timeline (invalid timestamps detected)" << std::endl;
+
+    double cumulative_time = 0.0;
+    trajectory_[0].time_from_start = 0.0;
+
+    for (size_t i = 1; i < trajectory_.size(); ++i) {
+        double dt = estimateSegmentDuration(trajectory_[i - 1], trajectory_[i]);
+        cumulative_time += dt;
+        trajectory_[i].time_from_start = cumulative_time;
+    }
+}
+
+double TrajectoryTracker::estimateSegmentDuration(
+    const plugin::TrajectoryPoint& prev,
+    const plugin::TrajectoryPoint& curr) const {
+    constexpr double kMinDt = 1e-3;
+    constexpr double kSpeedEps = 1e-3;
+
+    double segment_length = 0.0;
+    if (curr.path_length > prev.path_length && prev.path_length >= 0.0) {
+        segment_length = curr.path_length - prev.path_length;
+    }
+
+    if (segment_length < 1e-6) {
+        double dx = curr.pose.x - prev.pose.x;
+        double dy = curr.pose.y - prev.pose.y;
+        segment_length = std::hypot(dx, dy);
+    }
+
+    double prev_speed = std::hypot(prev.twist.vx, prev.twist.vy);
+    double curr_speed = std::hypot(curr.twist.vx, curr.twist.vy);
+    double avg_speed = 0.5 * (prev_speed + curr_speed);
+
+    if (segment_length < 1e-6) {
+        return kMinDt;
+    }
+
+    double reference_speed = avg_speed;
+    if (reference_speed < kSpeedEps) {
+        reference_speed = std::max(config_.max_velocity, 0.1);
+    }
+
+    double dt = segment_length / reference_speed;
+    if (!std::isfinite(dt) || dt < kMinDt) {
+        dt = kMinDt;
+    }
+
+    return dt;
 }
 
 double TrajectoryTracker::toTrajectoryTime(double sim_time) const {
