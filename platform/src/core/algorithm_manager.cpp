@@ -35,6 +35,27 @@ double normalizeAngleRad(double angle) {
   }
   return angle;
 }
+
+int classifyVelocitySign(double vx) {
+  constexpr double kVelocityEps = 0.05;  // m/s
+  if (vx > kVelocityEps) {
+    return 1;
+  }
+  if (vx < -kVelocityEps) {
+    return -1;
+  }
+  return 0;
+}
+
+int inferTrajectoryVelocitySign(const std::vector<navsim::plugin::TrajectoryPoint>& trajectory) {
+  for (const auto& point : trajectory) {
+    int sign = classifyVelocitySign(point.twist.vx);
+    if (sign != 0) {
+      return sign;
+    }
+  }
+  return 0;
+}
 }  // namespace
 
 namespace navsim {
@@ -320,17 +341,67 @@ bool AlgorithmManager::process(const proto::WorldTick& world_tick,
   bool use_hold_plan = false;
 
   if (near_goal && !hold_trajectory_.empty()) {
+    if (config_.verbose_logging) {
+      std::cout << "[AlgorithmManager] Near goal - attempting to reuse hold trajectory. Cached size="
+                << hold_trajectory_.size() << std::endl;
+      std::cout << "  Current ego pose: (" << current_ego.pose.x << ", "
+                << current_ego.pose.y << "), yaw=" << current_ego.pose.yaw
+                << ", twist.vx=" << current_ego.twist.vx
+                << ", twist.vy=" << current_ego.twist.vy
+                << ", twist.omega=" << current_ego.twist.omega << std::endl;
+      const size_t preview_count = std::min<size_t>(5, hold_trajectory_.size());
+      std::cout << "  Cached trajectory preview (first " << preview_count << " points):" << std::endl;
+      for (size_t i = 0; i < preview_count; ++i) {
+        const auto& pt = hold_trajectory_[i];
+        std::cout << "    [" << i << "] p=(" << pt.pose.x << ", " << pt.pose.y
+                  << "), yaw=" << pt.pose.yaw
+                  << ", vx=" << pt.twist.vx
+                  << ", vy=" << pt.twist.vy
+                  << ", omega=" << pt.twist.omega
+                  << ", path=" << pt.path_length
+                  << ", t=" << pt.time_from_start << std::endl;
+      }
+    }
+
     auto trimmed = trimTrajectoryForCurrentPose(hold_trajectory_, current_ego);
     if (!trimmed.empty()) {
+      if (config_.verbose_logging) {
+        const size_t preview_count = std::min<size_t>(5, trimmed.size());
+        std::cout << "[AlgorithmManager] Hold trajectory trimmed. New size="
+                  << trimmed.size() << std::endl;
+        for (size_t i = 0; i < preview_count; ++i) {
+          const auto& pt = trimmed[i];
+          std::cout << "    [trim " << i << "] p=(" << pt.pose.x << ", " << pt.pose.y
+                    << "), yaw=" << pt.pose.yaw
+                    << ", vx=" << pt.twist.vx
+                    << ", vy=" << pt.twist.vy
+                    << ", omega=" << pt.twist.omega
+                    << ", path=" << pt.path_length
+                    << ", t=" << pt.time_from_start << std::endl;
+        }
+      }
       planning_result.success = true;
       planning_result.trajectory = std::move(trimmed);
       planning_result.planner_name = hold_planner_name_.empty() ? "JpsPlanner" : hold_planner_name_;
       planning_success = true;
       use_hold_plan = true;
       hold_trajectory_ = planning_result.trajectory;
+      int applied_sign = inferTrajectoryVelocitySign(hold_trajectory_);
+      if (applied_sign == 0) {
+        applied_sign = classifyVelocitySign(current_ego.twist.vx);
+      }
+      if (applied_sign == 0) {
+        applied_sign = hold_last_velocity_sign_;
+      }
+      hold_last_velocity_sign_ = applied_sign;
     } else {
+      if (config_.verbose_logging) {
+        std::cout << "[AlgorithmManager] Hold trajectory trimming failed (empty result). Clearing cache."
+                  << std::endl;
+      }
       hold_trajectory_.clear();
       hold_planner_name_.clear();
+      hold_last_velocity_sign_ = 0;
     }
   }
 
@@ -339,9 +410,11 @@ bool AlgorithmManager::process(const proto::WorldTick& world_tick,
     if (planning_success && !planning_result.trajectory.empty()) {
       hold_trajectory_ = planning_result.trajectory;
       hold_planner_name_ = planning_result.planner_name;
+      hold_last_velocity_sign_ = inferTrajectoryVelocitySign(hold_trajectory_);
     } else if (!planning_success) {
       hold_trajectory_.clear();
       hold_planner_name_.clear();
+      hold_last_velocity_sign_ = 0;
     }
   }
 
@@ -499,6 +572,7 @@ void AlgorithmManager::reset() {
   playback_plan_signature_.reset();
   hold_trajectory_.clear();
   hold_planner_name_.clear();
+  hold_last_velocity_sign_ = 0;
 
   simulation_started_.store(false);
   // 重置统计信息
@@ -773,15 +847,47 @@ std::vector<plugin::TrajectoryPoint> AlgorithmManager::trimTrajectoryForCurrentP
 
   const auto& current_pose = current_ego.pose;
 
+  const int current_sign = classifyVelocitySign(current_ego.twist.vx);
+  const int desired_sign = (current_sign != 0) ? current_sign : hold_last_velocity_sign_;
+
   size_t closest_idx = 0;
   double min_distance = std::numeric_limits<double>::infinity();
+  bool found_matching_sign = false;
+
+  size_t fallback_idx = 0;
+  double fallback_distance = std::numeric_limits<double>::infinity();
+
   for (size_t i = 0; i < trajectory.size(); ++i) {
     double dx = trajectory[i].pose.x - current_pose.x;
     double dy = trajectory[i].pose.y - current_pose.y;
     double distance = std::hypot(dx, dy);
-    if (distance < min_distance) {
+
+    if (distance < fallback_distance) {
+      fallback_distance = distance;
+      fallback_idx = i;
+    }
+
+    const int point_sign = classifyVelocitySign(trajectory[i].twist.vx);
+    bool sign_match = false;
+    if (desired_sign == 0) {
+      sign_match = (point_sign == 0);
+    } else {
+      sign_match = (point_sign == desired_sign && point_sign != 0);
+    }
+
+    if (sign_match && distance < min_distance) {
       min_distance = distance;
       closest_idx = i;
+      found_matching_sign = true;
+    }
+  }
+
+  if (!found_matching_sign) {
+    closest_idx = fallback_idx;
+    if (config_.verbose_logging) {
+      std::cout << "[AlgorithmManager] Hold trajectory: no matching velocity segment found; "
+                   "falling back to geometric closest point index="
+                << closest_idx << std::endl;
     }
   }
 
@@ -1281,7 +1387,7 @@ bool AlgorithmManager::process_simulation_step(double dt) {
     const auto& current_world_state = local_simulator_->get_world_state();
 
     if (tracker_playback_mode) {
-      auto target_state = trajectory_tracker_->getTargetState(playback_query_time);
+      auto target_state = trajectory_tracker_->getTargetStateOriginalYaw(playback_query_time);
 
       playback_target_pose.x = target_state.pose.x;
       playback_target_pose.y = target_state.pose.y;
@@ -1349,7 +1455,7 @@ bool AlgorithmManager::process_simulation_step(double dt) {
       visualizer_->showDebugInfo("Constraints", constraint_status);
 
       // 🎯 绘制轨迹跟踪状态可视化
-      auto target_state = trajectory_tracker_->getTargetState(tracker_playback_mode ? playback_query_time : current_sim_time);
+      auto target_state = trajectory_tracker_->getTargetStateOriginalYaw(tracker_playback_mode ? playback_query_time : current_sim_time);
       planning::Pose2d target_pose(target_state.pose.x, target_state.pose.y, target_state.pose.yaw);
 
       visualizer_->drawTrajectoryTracking(
@@ -1363,7 +1469,7 @@ bool AlgorithmManager::process_simulation_step(double dt) {
 
     if (config_.verbose_logging && world_state.frame_id % 30 == 0) {  // 每秒打印一次
       const auto& quality = trajectory_tracker_->getQualityMetrics();
-      auto target_state = trajectory_tracker_->getTargetState(tracker_playback_mode ? playback_query_time : current_sim_time);
+      auto target_state = trajectory_tracker_->getTargetStateOriginalYaw(tracker_playback_mode ? playback_query_time : current_sim_time);
 
       std::cout << "[AlgorithmManager] Step " << world_state.frame_id
                 << ": Planning success, " << plan_update.trajectory_size()
@@ -1435,7 +1541,7 @@ bool AlgorithmManager::process_simulation_step(double dt) {
       playback_elapsed_time_ += use_dt;
       playback_elapsed_time_ = std::min(playback_elapsed_time_, duration);
 
-      auto post_step_state = trajectory_tracker_->getTargetState(playback_elapsed_time_);
+      auto post_step_state = trajectory_tracker_->getTargetStateOriginalYaw(playback_elapsed_time_);
 
       playback_target_pose.x = post_step_state.pose.x;
       playback_target_pose.y = post_step_state.pose.y;

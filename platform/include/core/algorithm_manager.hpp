@@ -270,6 +270,7 @@ private:
   double goal_hold_distance_ = 500.0;
   std::vector<plugin::TrajectoryPoint> hold_trajectory_;
   std::string hold_planner_name_;
+  int hold_last_velocity_sign_ = 0;
 
   // 仿真状态
   std::atomic<bool> simulation_started_{false};

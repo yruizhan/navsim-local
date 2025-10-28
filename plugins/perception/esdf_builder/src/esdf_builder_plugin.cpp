@@ -58,11 +58,11 @@ bool ESDFBuilderPlugin::initialize(const nlohmann::json& config) {
 
     std::cout << "[ESDFBuilder] Initialized with parameters:" << std::endl;
     std::cout << "  - resolution: " << resolution_ << " m/cell" << std::endl;
-    std::cout << "  - map_width: " << map_width_ << " m" << std::endl;
-    std::cout << "  - map_height: " << map_height_ << " m" << std::endl;
-    std::cout << "  - grid_size: " << grid_width_ << " x " << grid_height_ << " cells" << std::endl;
-    std::cout << "  - max_distance: " << max_distance_ << " m" << std::endl;
-    std::cout << "  - include_dynamic: " << (include_dynamic_ ? "true" : "false") << std::endl;
+    // std::cout << "  - map_width: " << map_width_ << " m" << std::endl;
+    // std::cout << "  - map_height: " << map_height_ << " m" << std::endl;
+    // std::cout << "  - grid_size: " << grid_width_ << " x " << grid_height_ << " cells" << std::endl;
+    // std::cout << "  - max_distance: " << max_distance_ << " m" << std::endl;
+    // std::cout << "  - include_dynamic: " << (include_dynamic_ ? "true" : "false") << std::endl;
 
     return true;
   } catch (const std::exception& e) {

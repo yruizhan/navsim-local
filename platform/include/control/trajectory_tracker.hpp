@@ -158,6 +158,11 @@ public:
     plugin::TrajectoryPoint getTargetState(double sim_time) const;
 
     /**
+     * @brief 获取指定时间的目标状态（保留轨迹原始朝向，不应用倒车航向修正）
+     */
+    plugin::TrajectoryPoint getTargetStateOriginalYaw(double sim_time) const;
+
+    /**
      * @brief 预测性控制指令生成
      * @param current_pose 当前位姿
      * @param current_twist 当前速度
@@ -299,6 +304,7 @@ private:
      * @brief 获取指定轨迹时间的目标状态
      */
     plugin::TrajectoryPoint getTargetStateAtTrajectoryTime(double trajectory_time) const;
+    plugin::TrajectoryPoint getTargetStateAtTrajectoryTime(double trajectory_time, bool apply_reverse_yaw) const;
 
     /**
      * @brief 判断给定时间是否处于倒车片段

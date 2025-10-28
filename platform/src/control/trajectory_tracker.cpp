@@ -207,7 +207,11 @@ planning::Twist2d TrajectoryTracker::getControlCommand(double sim_time) {
 }
 
 plugin::TrajectoryPoint TrajectoryTracker::getTargetState(double sim_time) const {
-    return getTargetStateAtTrajectoryTime(toTrajectoryTime(sim_time));
+    return getTargetStateAtTrajectoryTime(toTrajectoryTime(sim_time), true);
+}
+
+plugin::TrajectoryPoint TrajectoryTracker::getTargetStateOriginalYaw(double sim_time) const {
+    return getTargetStateAtTrajectoryTime(toTrajectoryTime(sim_time), false);
 }
 
 planning::Twist2d TrajectoryTracker::getPredictiveControl(
@@ -629,20 +633,24 @@ double TrajectoryTracker::toTrajectoryTime(double sim_time) const {
 }
 
 plugin::TrajectoryPoint TrajectoryTracker::getTargetStateAtTrajectoryTime(double trajectory_time) const {
+    return getTargetStateAtTrajectoryTime(trajectory_time, true);
+}
+
+plugin::TrajectoryPoint TrajectoryTracker::getTargetStateAtTrajectoryTime(double trajectory_time, bool apply_reverse_yaw) const {
     if (!hasValidTrajectory()) {
         return plugin::TrajectoryPoint{};
     }
 
     if (trajectory_time <= trajectory_.front().time_from_start) {
         plugin::TrajectoryPoint result = trajectory_.front();
-        if (config_.enable_reverse_tracking && !effective_yaws_.empty()) {
+        if (apply_reverse_yaw && config_.enable_reverse_tracking && !effective_yaws_.empty()) {
             result.pose.yaw = getEffectiveYaw(0);
         }
         return result;
     }
     if (trajectory_time >= trajectory_.back().time_from_start) {
         plugin::TrajectoryPoint result = trajectory_.back();
-        if (config_.enable_reverse_tracking && !effective_yaws_.empty()) {
+        if (apply_reverse_yaw && config_.enable_reverse_tracking && !effective_yaws_.empty()) {
             result.pose.yaw = getEffectiveYaw(trajectory_.size() - 1);
         }
         return result;
@@ -654,7 +662,7 @@ plugin::TrajectoryPoint TrajectoryTracker::getTargetStateAtTrajectoryTime(double
 
     if (prev_idx == next_idx) {
         plugin::TrajectoryPoint result = trajectory_[prev_idx];
-        if (config_.enable_reverse_tracking && !effective_yaws_.empty()) {
+        if (apply_reverse_yaw && config_.enable_reverse_tracking && !effective_yaws_.empty()) {
             result.pose.yaw = getEffectiveYaw(prev_idx);
         }
         return result;
@@ -675,7 +683,7 @@ plugin::TrajectoryPoint TrajectoryTracker::getTargetStateAtTrajectoryTime(double
 
     result.pose.x = p1.pose.x + ratio * (p2.pose.x - p1.pose.x);
     result.pose.y = p1.pose.y + ratio * (p2.pose.y - p1.pose.y);
-    if (config_.enable_reverse_tracking && !effective_yaws_.empty()) {
+    if (apply_reverse_yaw && config_.enable_reverse_tracking && !effective_yaws_.empty()) {
         double yaw1 = getEffectiveYaw(prev_idx);
         double yaw2 = getEffectiveYaw(next_idx);
         double yaw = yaw1 + ratio * normalizeAngle(yaw2 - yaw1);

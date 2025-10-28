@@ -1630,9 +1630,19 @@ void ImGuiVisualizer::renderScene() {
       // 🏎️ 绘制速度矢量（按速度大小缩放，区分正反向）
       const double speed_body = std::hypot(ego_.twist.vx, ego_.twist.vy);
       if (speed_body > 1e-3) {
-        constexpr double velocity_scale = 0.6;  // 将 m/s 转成场景中的长度
+        constexpr double velocity_scale = 0.6;      // 将 m/s 转成场景中的长度
+        constexpr double min_visual_length = 0.25;  // 低速时的最短箭头长度（米）
         double vel_world_x = ego_.twist.vx * cos_yaw - ego_.twist.vy * sin_yaw;
         double vel_world_y = ego_.twist.vx * sin_yaw + ego_.twist.vy * cos_yaw;
+
+        double scaled_length = speed_body * velocity_scale;
+        if (scaled_length < min_visual_length) {
+          double scale_up = min_visual_length / std::max(scaled_length, 1e-4);
+          vel_world_x *= scale_up;
+          vel_world_y *= scale_up;
+          scaled_length = min_visual_length;
+        }
+
         double vel_end_x = ego_.pose.x + vel_world_x * velocity_scale;
         double vel_end_y = ego_.pose.y + vel_world_y * velocity_scale;
 
