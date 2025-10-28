@@ -10,7 +10,7 @@ echo "=========================================="
 echo ""
 
 # 默认参数
-SCENARIO="scenarios/map1.json"
+SCENARIO="scenarios/map4.json"
 PLANNER="JpsPlanner"
 PERCEPTION="EsdfBuilder"
 CMAKE_BUILD_TYPE="Release"

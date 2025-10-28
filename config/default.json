@@ -15,7 +15,7 @@
     "plugins": [
       {
         "name": "GridMapBuilder",
-        "enabled": true,
+        "enabled": false,
         "priority": 100,
         "params": {
           "resolution": 0.1,

@@ -6,6 +6,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <imgui.h>
 
 // 前向声明 ImGui 类型
 struct ImGuiContext;
@@ -159,6 +160,15 @@ private:
     double zoom = 1.0;      // 缩放倍数
     bool follow_ego = true; // 是否跟随自车
   } view_state_;
+
+  struct PanState {
+    bool active = false;
+    float last_mouse_x = 0.0f;
+    float last_mouse_y = 0.0f;
+  } pan_state_;
+
+  ImVec2 scene_canvas_pos_{0.0f, 0.0f};
+  ImVec2 scene_canvas_size_{0.0f, 0.0f};
 
   // 鼠标滑轮缩放
   int wheel_delta_ = 0;  // 滑轮增量累积

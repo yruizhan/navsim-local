@@ -526,9 +526,30 @@ void ImGuiVisualizer::renderScene() {
 
   ImGui::Begin(window_title.c_str(), nullptr, ImGuiWindowFlags_NoCollapse);
 
-  // 获取画布位置和大小
+  // 获取画布位置和大小，并注册一个不可见按钮以捕获鼠标交互
   ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
   ImVec2 canvas_size = ImGui::GetContentRegionAvail();
+  scene_canvas_pos_ = canvas_pos;
+  scene_canvas_size_ = canvas_size;
+
+  ImGui::InvisibleButton(
+    "scene_canvas",
+    canvas_size,
+    ImGuiButtonFlags_MouseButtonLeft |
+    ImGuiButtonFlags_MouseButtonRight |
+    ImGuiButtonFlags_MouseButtonMiddle);
+
+  ImVec2 mouse_pos = ImGui::GetMousePos();
+  const bool mouse_in_canvas =
+    (mouse_pos.x >= canvas_pos.x && mouse_pos.x <= canvas_pos.x + canvas_size.x &&
+     mouse_pos.y >= canvas_pos.y && mouse_pos.y <= canvas_pos.y + canvas_size.y);
+  const bool scene_hovered =
+    ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup |
+                         ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+  const bool scene_active = ImGui::IsItemActive();
+
+  // 由于 InvisibleButton 会推进光标位置，这里恢复以便后续 worldToScreen 计算
+  ImGui::SetCursorScreenPos(canvas_pos);
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -1614,55 +1635,73 @@ void ImGuiVisualizer::renderScene() {
 
   // 🔍 处理鼠标滑轮缩放
   if (wheel_delta_ != 0) {
-    // 检查鼠标是否在画布区域内
-    ImVec2 mouse_pos = ImGui::GetMousePos();
-    if (mouse_pos.x >= canvas_pos.x && mouse_pos.x <= canvas_pos.x + canvas_size.x &&
-        mouse_pos.y >= canvas_pos.y && mouse_pos.y <= canvas_pos.y + canvas_size.y) {
+    if (mouse_in_canvas) {
+      const double zoom_factor = 1.1;
+      const double min_zoom = 0.1;
+      const double max_zoom = 15.0;
 
-      // 缩放参数
-      double zoom_factor = 1.1;  // 每次滚轮的缩放倍数
-      double min_zoom = 0.1;     // 最小缩放（可以看到更大范围）
-      double max_zoom = 10.0;    // 最大缩放（可以看到更多细节）
-
-      // 计算新的缩放值
+      const double previous_zoom = view_state_.zoom;
+      double new_zoom = previous_zoom;
       if (wheel_delta_ > 0) {
-        // 向上滚轮：放大
-        view_state_.zoom *= zoom_factor;
+        new_zoom *= zoom_factor;
       } else {
-        // 向下滚轮：缩小
-        view_state_.zoom /= zoom_factor;
+        new_zoom /= zoom_factor;
       }
+      new_zoom = std::clamp(new_zoom, min_zoom, max_zoom);
 
-      // 限制缩放范围
-      view_state_.zoom = std::clamp(view_state_.zoom, min_zoom, max_zoom);
+      // 如果缩放没有变化，则不再调整（例如已经达到边界）
+      if (std::abs(new_zoom - previous_zoom) > 1e-6) {
+        if (view_state_.follow_ego) {
+          view_state_.follow_ego = false;
+        }
 
-      // 缩放时暂时停止跟随自车，让用户可以自由查看
+        // 计算鼠标在缩放前的世界坐标
+        const float rel_x = mouse_pos.x - (canvas_pos.x + canvas_size.x / 2.0f);
+        const float rel_y = (canvas_pos.y + canvas_size.y / 2.0f) - mouse_pos.y;
+        const double meters_per_pixel_prev = 1.0 / (config_.pixels_per_meter * previous_zoom);
+        const double mouse_world_x = view_state_.center_x + rel_x * meters_per_pixel_prev;
+        const double mouse_world_y = view_state_.center_y + rel_y * meters_per_pixel_prev;
+
+        view_state_.zoom = new_zoom;
+
+        const double meters_per_pixel_new = 1.0 / (config_.pixels_per_meter * view_state_.zoom);
+        view_state_.center_x = mouse_world_x - rel_x * meters_per_pixel_new;
+        view_state_.center_y = mouse_world_y - rel_y * meters_per_pixel_new;
+
+        debug_info_["🔍 Zoom"] = formatDouble(view_state_.zoom, 2) + "x";
+        debug_info_["🎯 View Center"] = "(" + formatDouble(view_state_.center_x, 1) + ", " + formatDouble(view_state_.center_y, 1) + ")";
+      }
+    }
+    wheel_delta_ = 0;
+  }
+
+  // 鼠标拖动平移视图（中键或右键）
+  const bool pan_button_down = scene_active &&
+    (ImGui::IsMouseDown(ImGuiMouseButton_Middle) ||
+     (ImGui::IsMouseDown(ImGuiMouseButton_Right) && !goal_setting_mode_));
+
+  if (pan_button_down) {
+    if (!pan_state_.active) {
+      pan_state_.active = true;
+      pan_state_.last_mouse_x = mouse_pos.x;
+      pan_state_.last_mouse_y = mouse_pos.y;
       if (view_state_.follow_ego) {
         view_state_.follow_ego = false;
-        // 将当前视图中心设置为自车位置
-        view_state_.center_x = ego_.pose.x;
-        view_state_.center_y = ego_.pose.y;
       }
-
-      // 可选：以鼠标位置为中心缩放（更自然的体验）
-      // 计算鼠标在世界坐标系中的位置
-      float rel_x = mouse_pos.x - (canvas_pos.x + canvas_size.x / 2.0f);
-      float rel_y = (canvas_pos.y + canvas_size.y / 2.0f) - mouse_pos.y;
-      double mouse_world_x = view_state_.center_x + rel_x / (config_.pixels_per_meter * view_state_.zoom);
-      double mouse_world_y = view_state_.center_y + rel_y / (config_.pixels_per_meter * view_state_.zoom);
-
-      // 调整视图中心，使鼠标指向的世界坐标点保持不变
-      // （这样缩放就是以鼠标指向的点为中心的）
-      // view_state_.center_x = mouse_world_x - rel_x / (config_.pixels_per_meter * view_state_.zoom);
-      // view_state_.center_y = mouse_world_y - rel_y / (config_.pixels_per_meter * view_state_.zoom);
-
-      // 更新调试信息
-      debug_info_["🔍 Zoom"] = formatDouble(view_state_.zoom, 2) + "x";
-      debug_info_["🎯 View Center"] = "(" + formatDouble(view_state_.center_x, 1) + ", " + formatDouble(view_state_.center_y, 1) + ")";
+    } else {
+      const float dx_pixels = mouse_pos.x - pan_state_.last_mouse_x;
+      const float dy_pixels = mouse_pos.y - pan_state_.last_mouse_y;
+      if (std::abs(dx_pixels) > 1e-3f || std::abs(dy_pixels) > 1e-3f) {
+        const double meters_per_pixel = 1.0 / (config_.pixels_per_meter * view_state_.zoom);
+        view_state_.center_x -= dx_pixels * meters_per_pixel;
+        view_state_.center_y += dy_pixels * meters_per_pixel;
+        pan_state_.last_mouse_x = mouse_pos.x;
+        pan_state_.last_mouse_y = mouse_pos.y;
+        debug_info_["🎯 View Center"] = "(" + formatDouble(view_state_.center_x, 1) + ", " + formatDouble(view_state_.center_y, 1) + ")";
+      }
     }
-
-    // 重置滑轮增量
-    wheel_delta_ = 0;
+  } else {
+    pan_state_.active = false;
   }
 
   // 处理目标点设置的鼠标点击事件
@@ -2131,8 +2170,8 @@ ImGuiVisualizer::Point2D ImGuiVisualizer::worldToScreen(double world_x, double w
   dy *= config_.pixels_per_meter * view_state_.zoom;
 
   // 获取画布信息
-  ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
-  ImVec2 canvas_size = ImGui::GetContentRegionAvail();
+  ImVec2 canvas_pos = scene_canvas_pos_;
+  ImVec2 canvas_size = scene_canvas_size_;
 
   // 转换到屏幕坐标（Y 轴翻转，因为屏幕 Y 向下，世界 Y 向上）
   float screen_x = canvas_pos.x + canvas_size.x / 2.0f + static_cast<float>(dx);
