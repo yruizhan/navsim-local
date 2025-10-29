@@ -267,7 +267,7 @@ cmake --build . -j$(nproc)
   --config=config/default.json
 ```
 
-- ImGui 窗口自动打开：`F` 跟随自车，`+/-` 缩放，`ESC` 关闭，终端 `Ctrl+C` 结束。
+- ImGui 窗口自动打开
 - 可通过配置文件调整插件参数、Max computation time、Goal hold 距离等。
 
 ### WebSocket 联机模式（todo）
