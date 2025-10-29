@@ -3,7 +3,7 @@
 
 > 想马上运行起来？参考[快速上手指南](docs/quick-start.md)。
 
-NavSim Local 是一个面向自动驾驶/移动机器人规划算法研发的“全内环”（perception → planning → control）沙箱平台。它在单进程(便于前期开发，之后版本可能改为多进程)内同时运行仿真器、感知与规划插件框架以及 ImGui/SDL2 可视化前端，并提供 WebSocket 桥接以连接远端前端或数据源。项目以插件化设计为核心，开发者可以自由替换或扩展各个阶段的算法组件。
+NavSim Local 是一个面向自动驾驶/移动机器人规划算法研发的“全内环”（perception → planning → control）沙箱平台。它在单进程(便于前期开发，之后版本可能改为多进程)内同时运行仿真器、感知与规划插件框架以及 ImGui/SDL2 可视化前端。项目以插件化设计为核心，开发者可以自由替换或扩展各个阶段的算法组件。
 
 **更多开发细节，可关注公众号了解： 哎嗨人生**
 
@@ -299,6 +299,54 @@ cmake --build . -j$(nproc)
 3. navsim-local/scenarios/目录放置了一些json地图，这些地图是通过navsim-online在线编辑绘制的，包含了起点终点，障碍物，动态障碍物，底盘类型，运动学约束。在网页上下载后放在此目录即可。在线网站暂未上线，大家可以先用这内置的地图体验，在线网站即将上线，敬请期待。
 
 ---
+
+## 结果展示
+### map1
+
+感觉不够平滑
+
+![alt text](docs/assets/map1.png)
+
+### map2
+
+起步倒车了，这个ddr-opt的特性，老是喜欢倒车
+
+![alt text](docs/assets/map2.png)
+
+### map3
+
+起步先倒车了
+
+![alt text](docs/assets/map3.png)
+
+### map4
+
+轨迹不平滑，且起点有倒车，这个倒车是个问题，起步老是喜欢先倒车
+
+![alt text](docs/assets/map4.png)
+
+### map6
+
+看速度曲线，起点有倒车，这个没必要，单纯自转就行了
+
+![alt text](docs/assets/map6.png)
+
+### map7
+
+这个轨迹不平滑啊，估计是哪项权重太大了
+
+![alt text](docs/assets/map7.png)
+
+### map8
+
+这个轨迹看着不怎么好，终点附近不够平滑，感觉是受障碍物影响比较大
+![alt text](docs/assets/map8.png)
+
+### map9 
+
+起点附近有多余的倒车，不是很合理
+
+![alt text](docs/assets/map9.png)
 
 ## License
 
