@@ -82,7 +82,7 @@
           "mean_time_lowBound": 0.5,
           "mean_time_uppBound": 2.0,
           "smoothEps": 0.01,
-          "safeDis": 0.3,
+          "safeDis": 0.45,
           "finalMinSafeDis": 0.1,
           "finalSafeDisCheckNum": 16,
           "safeReplanMaxTime": 3,
@@ -137,7 +137,7 @@
   },
   "algorithm": {
     "max_computation_time_ms": 25.0,
-    "verbose_logging": true,
+    "verbose_logging": false,
     "enable_visualization": true
   }
 }

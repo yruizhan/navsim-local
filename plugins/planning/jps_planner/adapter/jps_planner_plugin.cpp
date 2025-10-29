@@ -159,9 +159,9 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
   }
 
   if (verbose_) {
-    std::cout << "[JPSPlannerPlugin] ESDF map pointer: " << esdf_map_.get() << std::endl;
-    std::cout << "[JPSPlannerPlugin] ESDF map size: " << esdf_map_->GLX_SIZE_
-              << " x " << esdf_map_->GLY_SIZE_ << std::endl;
+    // std::cout << "[JPSPlannerPlugin] ESDF map pointer: " << esdf_map_.get() << std::endl;
+    // std::cout << "[JPSPlannerPlugin] ESDF map size: " << esdf_map_->GLX_SIZE_
+    //           << " x " << esdf_map_->GLY_SIZE_ << std::endl;
   }
 
   // 🔧 从场景配置更新优化器配置（运动学约束、ICR、checkpoint）
@@ -205,7 +205,7 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
   if (verbose_) {
     std::cout << "[JPSPlannerPlugin] Planning from " << start.transpose()
               << " to " << goal.transpose() << std::endl;
-    std::cout << "[JPSPlannerPlugin] Calling jps_planner_->plan()..." << std::endl;
+    // std::cout << "[JPSPlannerPlugin] Calling jps_planner_->plan()..." << std::endl;
   }
 
   // 🔧 设置当前速度状态 - 修复轨迹连续性问题
@@ -247,9 +247,9 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
   }
 
   // Trajectory optimization
-  if (verbose_) {
-    std::cout << "[JPSPlannerPlugin] Running trajectory optimization..." << std::endl;
-  }
+  // if (verbose_) {
+  //   std::cout << "[JPSPlannerPlugin] Running trajectory optimization..." << std::endl;
+  // }
 
   auto opt_start = std::chrono::steady_clock::now();
   bool optimize_result = msplanner_->minco_plan(jps_planner_->flat_traj_);
@@ -278,51 +278,51 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
     const auto& raw_path = jps_planner_->getRawPath();
     std::cout << "[JPSPlannerPlugin] === PATH 1: Raw JPS path size: " << raw_path.size() << std::endl;
     if (!raw_path.empty()) {
-      std::cout << "  First point: " << raw_path[0].transpose() << std::endl;
-      std::cout << "  Last point: " << raw_path.back().transpose() << std::endl;
-      for (size_t i = 0; i < std::min(raw_path.size(), size_t(5)); ++i) {
-        std::cout << "  [" << i << "]: " << raw_path[i].transpose() << std::endl;
-      }
+      // std::cout << "  First point: " << raw_path[0].transpose() << std::endl;
+      // std::cout << "  Last point: " << raw_path.back().transpose() << std::endl;
+      // for (size_t i = 0; i < std::min(raw_path.size(), size_t(5)); ++i) {
+      //   std::cout << "  [" << i << "]: " << raw_path[i].transpose() << std::endl;
+      // }
     }
 
     // Debug Path 2: Optimized path (after removeCornerPts)
     const auto& opt_path = jps_planner_->getOptimizedPath();
     std::cout << "[JPSPlannerPlugin] === PATH 2: Optimized path size: " << opt_path.size() << std::endl;
     if (!opt_path.empty()) {
-      std::cout << "  First point: " << opt_path[0].transpose() << std::endl;
-      std::cout << "  Last point: " << opt_path.back().transpose() << std::endl;
-      for (size_t i = 0; i < std::min(opt_path.size(), size_t(5)); ++i) {
-        std::cout << "  [" << i << "]: " << opt_path[i].transpose() << std::endl;
-      }
+      // std::cout << "  First point: " << opt_path[0].transpose() << std::endl;
+      // std::cout << "  Last point: " << opt_path.back().transpose() << std::endl;
+      // for (size_t i = 0; i < std::min(opt_path.size(), size_t(5)); ++i) {
+      //   std::cout << "  [" << i << "]: " << opt_path[i].transpose() << std::endl;
+      // }
     }
 
     // Debug Path 3: Sampled trajectory (after getSampleTraj)
     const auto& sample_trajs = jps_planner_->getSampleTrajs();
     std::cout << "[JPSPlannerPlugin] === PATH 3: Sample trajectory size: " << sample_trajs.size() << std::endl;
     if (!sample_trajs.empty()) {
-      std::cout << "  First sample: [x,y,yaw,dyaw,ds] = " << sample_trajs[0].transpose() << std::endl;
-      std::cout << "  Last sample: [x,y,yaw,dyaw,ds] = " << sample_trajs.back().transpose() << std::endl;
-      for (size_t i = 0; i < std::min(sample_trajs.size(), size_t(5)); ++i) {
-        std::cout << "  [" << i << "]: " << sample_trajs[i].transpose() << std::endl;
-      }
+      // std::cout << "  First sample: [x,y,yaw,dyaw,ds] = " << sample_trajs[0].transpose() << std::endl;
+      // std::cout << "  Last sample: [x,y,yaw,dyaw,ds] = " << sample_trajs.back().transpose() << std::endl;
+      // for (size_t i = 0; i < std::min(sample_trajs.size(), size_t(5)); ++i) {
+      //   std::cout << "  [" << i << "]: " << sample_trajs[i].transpose() << std::endl;
+      // }
     }
 
     // Debug Path 4: Final FlatTrajData (after getTrajsWithTime)
     const auto& flat_traj = jps_planner_->getFlatTraj();
     std::cout << "[JPSPlannerPlugin] === PATH 4: FlatTrajData size: " << flat_traj.UnOccupied_traj_pts.size() << std::endl;
-    std::cout << "  Sample time: " << flat_traj.UnOccupied_initT << std::endl;
-    std::cout << "  If cut: " << flat_traj.if_cut << std::endl;
-    if (!flat_traj.UnOccupied_traj_pts.empty()) {
-      std::cout << "  First traj point [yaw,s,t]: " << flat_traj.UnOccupied_traj_pts[0].transpose() << std::endl;
-      std::cout << "  Last traj point [yaw,s,t]: " << flat_traj.UnOccupied_traj_pts.back().transpose() << std::endl;
-    }
-    if (!flat_traj.UnOccupied_positions.empty()) {
-      std::cout << "  First position [x,y,yaw]: " << flat_traj.UnOccupied_positions[0].transpose() << std::endl;
-      std::cout << "  Last position [x,y,yaw]: " << flat_traj.UnOccupied_positions.back().transpose() << std::endl;
-      for (size_t i = 0; i < std::min(flat_traj.UnOccupied_positions.size(), size_t(5)); ++i) {
-        std::cout << "  [" << i << "]: " << flat_traj.UnOccupied_positions[i].transpose() << std::endl;
-      }
-    }
+    // std::cout << "  Sample time: " << flat_traj.UnOccupied_initT << std::endl;
+    // std::cout << "  If cut: " << flat_traj.if_cut << std::endl;
+    // if (!flat_traj.UnOccupied_traj_pts.empty()) {
+    //   std::cout << "  First traj point [yaw,s,t]: " << flat_traj.UnOccupied_traj_pts[0].transpose() << std::endl;
+    //   std::cout << "  Last traj point [yaw,s,t]: " << flat_traj.UnOccupied_traj_pts.back().transpose() << std::endl;
+    // }
+    // if (!flat_traj.UnOccupied_positions.empty()) {
+    //   std::cout << "  First position [x,y,yaw]: " << flat_traj.UnOccupied_positions[0].transpose() << std::endl;
+    //   std::cout << "  Last position [x,y,yaw]: " << flat_traj.UnOccupied_positions.back().transpose() << std::endl;
+    //   for (size_t i = 0; i < std::min(flat_traj.UnOccupied_positions.size(), size_t(5)); ++i) {
+    //     std::cout << "  [" << i << "]: " << flat_traj.UnOccupied_positions[i].transpose() << std::endl;
+    //   }
+    // }
   }
 
   if (!success) {
@@ -443,10 +443,10 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
       global_debug_paths.push_back(minco_poses);
       if (verbose_) {
         std::cout << "[JPSPlannerPlugin] === PATH 5: MINCO final trajectory size: " << minco_poses.size() << std::endl;
-        if (!minco_poses.empty()) {
-          std::cout << "  First point: (" << minco_poses[0].x << ", " << minco_poses[0].y << ")" << std::endl;
-          std::cout << "  Last point: (" << minco_poses.back().x << ", " << minco_poses.back().y << ")" << std::endl;
-        }
+        // if (!minco_poses.empty()) {
+        //   std::cout << "  First point: (" << minco_poses[0].x << ", " << minco_poses[0].y << ")" << std::endl;
+        //   std::cout << "  Last point: (" << minco_poses.back().x << ", " << minco_poses.back().y << ")" << std::endl;
+        // }
       }
     } else if (verbose_) {
       std::cout << "[JPSPlannerPlugin] === PATH 5: MINCO trajectory extraction failed (empty trajectory)" << std::endl;
@@ -465,10 +465,10 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
       if (verbose_) {
         std::cout << "[JPSPlannerPlugin] === PATH 6: MINCO preprocessing trajectory (Stage 1) size: "
                   << preprocessing_poses.size() << std::endl;
-        if (!preprocessing_poses.empty()) {
-          std::cout << "  First point: (" << preprocessing_poses[0].x << ", " << preprocessing_poses[0].y << ")" << std::endl;
-          std::cout << "  Last point: (" << preprocessing_poses.back().x << ", " << preprocessing_poses.back().y << ")" << std::endl;
-        }
+        // if (!preprocessing_poses.empty()) {
+        //   std::cout << "  First point: (" << preprocessing_poses[0].x << ", " << preprocessing_poses[0].y << ")" << std::endl;
+        //   std::cout << "  Last point: (" << preprocessing_poses.back().x << ", " << preprocessing_poses.back().y << ")" << std::endl;
+        // }
       }
     }
 
@@ -479,10 +479,10 @@ bool JpsPlannerPlugin::plan(const navsim::planning::PlanningContext& context,
       if (verbose_) {
         std::cout << "[JPSPlannerPlugin] === PATH 7: MINCO main optimization trajectory (Stage 2) size: "
                   << optimization_poses.size() << std::endl;
-        if (!optimization_poses.empty()) {
-          std::cout << "  First point: (" << optimization_poses[0].x << ", " << optimization_poses[0].y << ")" << std::endl;
-          std::cout << "  Last point: (" << optimization_poses.back().x << ", " << optimization_poses.back().y << ")" << std::endl;
-        }
+        // if (!optimization_poses.empty()) {
+        //   std::cout << "  First point: (" << optimization_poses[0].x << ", " << optimization_poses[0].y << ")" << std::endl;
+        //   std::cout << "  Last point: (" << optimization_poses.back().x << ", " << optimization_poses.back().y << ")" << std::endl;
+        // }
       }
     }
   }
@@ -857,9 +857,9 @@ std::vector<navsim::plugin::TrajectoryPoint> JpsPlannerPlugin::extractMincoTraje
     minco_trajectory.push_back(initial_pt);
 
     if (verbose_) {
-      std::cout << "[JPSPlannerPlugin] Added initial point at t=0: "
-                << "pos=(" << initial_pt.pose.x << ", " << initial_pt.pose.y << "), "
-                << "vx=" << initial_pt.twist.vx << ", omega=" << initial_pt.twist.omega << std::endl;
+      // std::cout << "[JPSPlannerPlugin] Added initial point at t=0: "
+      //           << "pos=(" << initial_pt.pose.x << ", " << initial_pt.pose.y << "), "
+      //           << "vx=" << initial_pt.twist.vx << ", omega=" << initial_pt.twist.omega << std::endl;
     }
   }
 
@@ -1165,32 +1165,32 @@ bool JpsPlannerPlugin::convertMincoOutputToResult(const navsim::planning::Planni
     }
 
     // 🔍 详细打印前 5 个点的完整信息
-    std::cout << "\n[JPSPlannerPlugin] First 5 trajectory points (detailed):" << std::endl;
-    size_t num_to_print = std::min(size_t(100), minco_trajectory.size());
-    for (size_t i = 0; i < num_to_print; ++i) {
-      const auto& pt = minco_trajectory[i];
-      std::cout << "  Point[" << i << "]: "
-                << "pos=(" << pt.pose.x << ", " << pt.pose.y << ", yaw=" << pt.pose.yaw << "), "
-                << "twist=(vx=" << pt.twist.vx << ", vy=" << pt.twist.vy << ", ω=" << pt.twist.omega << "), "
-                << "acc=" << pt.acceleration << ", "
-                << "curv=" << pt.curvature << ", "
-                << "t=" << pt.time_from_start << ", "
-                << "s=" << pt.path_length << std::endl;
-    }
+    // std::cout << "\n[JPSPlannerPlugin] First 5 trajectory points (detailed):" << std::endl;
+    // size_t num_to_print = std::min(size_t(100), minco_trajectory.size());
+    // for (size_t i = 0; i < num_to_print; ++i) {
+    //   const auto& pt = minco_trajectory[i];
+    //   std::cout << "  Point[" << i << "]: "
+    //             << "pos=(" << pt.pose.x << ", " << pt.pose.y << ", yaw=" << pt.pose.yaw << "), "
+    //             << "twist=(vx=" << pt.twist.vx << ", vy=" << pt.twist.vy << ", ω=" << pt.twist.omega << "), "
+    //             << "acc=" << pt.acceleration << ", "
+    //             << "curv=" << pt.curvature << ", "
+    //             << "t=" << pt.time_from_start << ", "
+    //             << "s=" << pt.path_length << std::endl;
+    // }
 
-    // 🔍 详细打印最后 5 个点的完整信息
-    std::cout << "\n[JPSPlannerPlugin] Last 5 trajectory points (detailed):" << std::endl;
-    size_t start_idx = minco_trajectory.size() > 5 ? minco_trajectory.size() - 5 : 0;
-    for (size_t i = start_idx; i < minco_trajectory.size(); ++i) {
-      const auto& pt = minco_trajectory[i];
-      std::cout << "  Point[" << i << "]: "
-                << "pos=(" << pt.pose.x << ", " << pt.pose.y << ", yaw=" << pt.pose.yaw << "), "
-                << "twist=(vx=" << pt.twist.vx << ", vy=" << pt.twist.vy << ", ω=" << pt.twist.omega << "), "
-                << "acc=" << pt.acceleration << ", "
-                << "curv=" << pt.curvature << ", "
-                << "t=" << pt.time_from_start << ", "
-                << "s=" << pt.path_length << std::endl;
-    }
+    // // 🔍 详细打印最后 5 个点的完整信息
+    // std::cout << "\n[JPSPlannerPlugin] Last 5 trajectory points (detailed):" << std::endl;
+    // size_t start_idx = minco_trajectory.size() > 5 ? minco_trajectory.size() - 5 : 0;
+    // for (size_t i = start_idx; i < minco_trajectory.size(); ++i) {
+    //   const auto& pt = minco_trajectory[i];
+    //   std::cout << "  Point[" << i << "]: "
+    //             << "pos=(" << pt.pose.x << ", " << pt.pose.y << ", yaw=" << pt.pose.yaw << "), "
+    //             << "twist=(vx=" << pt.twist.vx << ", vy=" << pt.twist.vy << ", ω=" << pt.twist.omega << "), "
+    //             << "acc=" << pt.acceleration << ", "
+    //             << "curv=" << pt.curvature << ", "
+    //             << "t=" << pt.time_from_start << ", "
+    //             << "s=" << pt.path_length << std::endl;
+    // }
 
     // 🔍 统计速度、加速度、曲率的范围
     double min_vx = std::numeric_limits<double>::max();
@@ -1213,16 +1213,16 @@ bool JpsPlannerPlugin::convertMincoOutputToResult(const navsim::planning::Planni
       max_curv = std::max(max_curv, pt.curvature);
     }
 
-    std::cout << "\n[JPSPlannerPlugin] Dynamics ranges:" << std::endl;
-    std::cout << "  - Velocity (vx): [" << min_vx << ", " << max_vx << "] m/s" << std::endl;
-    std::cout << "  - Angular velocity (ω): [" << min_omega << ", " << max_omega << "] rad/s" << std::endl;
-    std::cout << "  - Acceleration: [" << min_acc << ", " << max_acc << "] m/s²" << std::endl;
-    std::cout << "  - Curvature: [" << min_curv << ", " << max_curv << "] 1/m" << std::endl;
-    std::cout << std::endl;
+    // std::cout << "\n[JPSPlannerPlugin] Dynamics ranges:" << std::endl;
+    // std::cout << "  - Velocity (vx): [" << min_vx << ", " << max_vx << "] m/s" << std::endl;
+    // std::cout << "  - Angular velocity (ω): [" << min_omega << ", " << max_omega << "] rad/s" << std::endl;
+    // std::cout << "  - Acceleration: [" << min_acc << ", " << max_acc << "] m/s²" << std::endl;
+    // std::cout << "  - Curvature: [" << min_curv << ", " << max_curv << "] 1/m" << std::endl;
+    // std::cout << std::endl;
   }
 
   // 📝 将整条轨迹写入日志文件（包含起点、终点、车辆参数、约束）
-  saveTrajectoryToLog(context, minco_trajectory, result);
+  // saveTrajectoryToLog(context, minco_trajectory, result);
 
   return true;
 }

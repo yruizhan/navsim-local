@@ -367,18 +367,18 @@ bool AlgorithmManager::process(const proto::WorldTick& world_tick,
     if (!trimmed.empty()) {
       if (config_.verbose_logging) {
         const size_t preview_count = std::min<size_t>(5, trimmed.size());
-        std::cout << "[AlgorithmManager] Hold trajectory trimmed. New size="
-                  << trimmed.size() << std::endl;
-        for (size_t i = 0; i < preview_count; ++i) {
-          const auto& pt = trimmed[i];
-          std::cout << "    [trim " << i << "] p=(" << pt.pose.x << ", " << pt.pose.y
-                    << "), yaw=" << pt.pose.yaw
-                    << ", vx=" << pt.twist.vx
-                    << ", vy=" << pt.twist.vy
-                    << ", omega=" << pt.twist.omega
-                    << ", path=" << pt.path_length
-                    << ", t=" << pt.time_from_start << std::endl;
-        }
+        // std::cout << "[AlgorithmManager] Hold trajectory trimmed. New size="
+        //           << trimmed.size() << std::endl;
+        // for (size_t i = 0; i < preview_count; ++i) {
+        //   const auto& pt = trimmed[i];
+        //   std::cout << "    [trim " << i << "] p=(" << pt.pose.x << ", " << pt.pose.y
+        //             << "), yaw=" << pt.pose.yaw
+        //             << ", vx=" << pt.twist.vx
+        //             << ", vy=" << pt.twist.vy
+        //             << ", omega=" << pt.twist.omega
+        //             << ", path=" << pt.path_length
+        //             << ", t=" << pt.time_from_start << std::endl;
+        // }
       }
       planning_result.success = true;
       planning_result.trajectory = std::move(trimmed);

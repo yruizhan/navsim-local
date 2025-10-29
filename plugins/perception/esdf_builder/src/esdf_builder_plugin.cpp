@@ -145,20 +145,20 @@ bool ESDFBuilderPlugin::process(const plugin::PerceptionInput& input, planning::
   // 每 60 帧打印一次 ESDF 统计信息和计时
   static int esdf_frame_count = 0;
   if (++esdf_frame_count % 60 == 0) {
-    std::cout << "[ESDFBuilder] ⏱️  Timing breakdown:" << std::endl;
-    std::cout << "  - Build occupancy grid: " << grid_time_ms << " ms" << std::endl;
-    std::cout << "  - Build ESDF map: " << build_time_ms << " ms" << std::endl;
-    std::cout << "  - Compute ESDF: " << esdf_time_ms << " ms" << std::endl;
-    std::cout << "  - Total: " << (grid_time_ms + build_time_ms + esdf_time_ms) << " ms" << std::endl;
-    std::cout << "[ESDFBuilder] ESDF stats:\n"
-              << "  Occupied cells: " << occupied_count << "\n"
-              << "  Distance < 0.5m:  " << count_0_05 << " cells\n"
-              << "  Distance 0.5-1m:  " << count_05_1 << " cells\n"
-              << "  Distance 1-2m:    " << count_1_2 << " cells\n"
-              << "  Distance 2-3m:    " << count_2_3 << " cells\n"
-              << "  Distance > 3m:    " << count_3_plus << " cells\n"
-              << "  Min distance:     " << min_dist << "m\n"
-              << "  Max distance:     " << max_dist << "m" << std::endl;
+    // std::cout << "[ESDFBuilder] ⏱️  Timing breakdown:" << std::endl;
+    // std::cout << "  - Build occupancy grid: " << grid_time_ms << " ms" << std::endl;
+    // std::cout << "  - Build ESDF map: " << build_time_ms << " ms" << std::endl;
+    // std::cout << "  - Compute ESDF: " << esdf_time_ms << " ms" << std::endl;
+    // std::cout << "  - Total: " << (grid_time_ms + build_time_ms + esdf_time_ms) << " ms" << std::endl;
+    // std::cout << "[ESDFBuilder] ESDF stats:\n"
+    //           << "  Occupied cells: " << occupied_count << "\n"
+    //           << "  Distance < 0.5m:  " << count_0_05 << " cells\n"
+    //           << "  Distance 0.5-1m:  " << count_05_1 << " cells\n"
+    //           << "  Distance 1-2m:    " << count_1_2 << " cells\n"
+    //           << "  Distance 2-3m:    " << count_2_3 << " cells\n"
+    //           << "  Distance > 3m:    " << count_3_plus << " cells\n"
+    //           << "  Min distance:     " << min_dist << "m\n"
+    //           << "  Max distance:     " << max_dist << "m" << std::endl;
   }
 
   // 5. 存储到规划上下文

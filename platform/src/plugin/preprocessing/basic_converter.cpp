@@ -87,6 +87,7 @@ planning::EgoVehicle BasicDataConverter::convertEgo(
       ego.limits.max_velocity = limits.v_max();
       ego.limits.max_acceleration = limits.a_max();
       ego.limits.max_steer_angle = limits.steer_max();
+      ego.limits.max_steer_rate = limits.omega_max();
     } else {
       // 默认限制
       ego.limits.max_velocity = 2.0;
@@ -148,4 +149,3 @@ void BasicDataConverter::convertBasicContext(
 
 } // namespace perception
 } // namespace navsim
-

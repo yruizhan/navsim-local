@@ -989,14 +989,14 @@ void ImGuiVisualizer::renderScene() {
   static int obstacle_log_count = 0;
   if (viz_options_.show_bev_obstacles) {
     if (obstacle_log_count++ % 60 == 0) {
-      std::cout << "[Viz]   Drawing " << bev_obstacles_.circles.size() << " BEV circles, "
-                << bev_obstacles_.rectangles.size() << " rectangles, "
-                << bev_obstacles_.polygons.size() << " polygons" << std::endl;
+      // std::cout << "[Viz]   Drawing " << bev_obstacles_.circles.size() << " BEV circles, "
+      //           << bev_obstacles_.rectangles.size() << " rectangles, "
+      //           << bev_obstacles_.polygons.size() << " polygons" << std::endl;
       if (!bev_obstacles_.circles.empty()) {
         auto test_center = worldToScreen(bev_obstacles_.circles[0].center);
-        std::cout << "[Viz]     First circle: world=(" << bev_obstacles_.circles[0].center.x
-                  << ", " << bev_obstacles_.circles[0].center.y
-                  << ") -> screen=(" << test_center.x << ", " << test_center.y << ")" << std::endl;
+        // std::cout << "[Viz]     First circle: world=(" << bev_obstacles_.circles[0].center.x
+        //           << ", " << bev_obstacles_.circles[0].center.y
+        //           << ") -> screen=(" << test_center.x << ", " << test_center.y << ")" << std::endl;
       }
     }
 
@@ -1268,18 +1268,18 @@ void ImGuiVisualizer::renderScene() {
   if (viz_options_.show_trajectory && trajectory_.size() > 1) {
     static int traj_log_count = 0;
     if (traj_log_count++ % 60 == 0) {
-      std::cout << "[Viz] Drawing trajectory with " << trajectory_.size() << " points" << std::endl;
-      std::cout << "[Viz]   Ego position: (" << ego_.pose.x << ", " << ego_.pose.y << ")" << std::endl;
-      std::cout << "[Viz]   First 5 trajectory points:" << std::endl;
+      // std::cout << "[Viz] Drawing trajectory with " << trajectory_.size() << " points" << std::endl;
+      // std::cout << "[Viz]   Ego position: (" << ego_.pose.x << ", " << ego_.pose.y << ")" << std::endl;
+      // std::cout << "[Viz]   First 5 trajectory points:" << std::endl;
       for (size_t i = 0; i < std::min(size_t(5), trajectory_.size()); ++i) {
-        std::cout << "[Viz]     Point[" << i << "]: ("
-                  << trajectory_[i].pose.x << ", "
-                  << trajectory_[i].pose.y << ")" << std::endl;
+        // std::cout << "[Viz]     Point[" << i << "]: ("
+        //           << trajectory_[i].pose.x << ", "
+        //           << trajectory_[i].pose.y << ")" << std::endl;
       }
       auto test_p1 = worldToScreen(trajectory_[0].pose.x, trajectory_[0].pose.y);
       auto test_p2 = worldToScreen(trajectory_[1].pose.x, trajectory_[1].pose.y);
-      std::cout << "[Viz]   First segment screen coords: (" << test_p1.x << "," << test_p1.y
-                << ") -> (" << test_p2.x << "," << test_p2.y << ")" << std::endl;
+      // std::cout << "[Viz]   First segment screen coords: (" << test_p1.x << "," << test_p1.y
+      //           << ") -> (" << test_p2.x << "," << test_p2.y << ")" << std::endl;
     }
 
     for (size_t i = 1; i < trajectory_.size(); ++i) {
@@ -1298,10 +1298,10 @@ void ImGuiVisualizer::renderScene() {
   if (tracking_data_.has_tracking_data) {
     static int tracking_log_count = 0;
     if (tracking_log_count++ % 60 == 0) {
-      std::cout << "[Viz] Drawing trajectory tracking:" << std::endl;
-      std::cout << "[Viz]   Actual pos: (" << tracking_data_.actual_pose.x << ", " << tracking_data_.actual_pose.y << ")" << std::endl;
-      std::cout << "[Viz]   Target pos: (" << tracking_data_.target_pose.x << ", " << tracking_data_.target_pose.y << ")" << std::endl;
-      std::cout << "[Viz]   Position error: " << tracking_data_.position_error * 1000 << " mm" << std::endl;
+      // std::cout << "[Viz] Drawing trajectory tracking:" << std::endl;
+      // std::cout << "[Viz]   Actual pos: (" << tracking_data_.actual_pose.x << ", " << tracking_data_.actual_pose.y << ")" << std::endl;
+      // std::cout << "[Viz]   Target pos: (" << tracking_data_.target_pose.x << ", " << tracking_data_.target_pose.y << ")" << std::endl;
+      // std::cout << "[Viz]   Position error: " << tracking_data_.position_error * 1000 << " mm" << std::endl;
     }
 
     auto actual_screen = worldToScreen(tracking_data_.actual_pose.x, tracking_data_.actual_pose.y);

@@ -181,6 +181,26 @@ bool LocalSimulator::load_scenario(const std::string& scenario_file,
     log_callback("📍 Dynamic obstacles: " + std::to_string(impl_->world_state_.dynamic_obstacles.size()));
   }
 
+  // 更新底盘配置（用于向规划器传播正确的运动学/动力学限制）
+  auto& chassis_proto = impl_->world_state_.chassis_config;
+  chassis_proto.set_model(context.ego.chassis_model);
+  chassis_proto.set_wheelbase(context.ego.kinematics.wheelbase);
+  chassis_proto.set_track_width(context.ego.kinematics.track_width);
+
+  auto* limits_proto = chassis_proto.mutable_limits();
+  limits_proto->set_v_max(context.ego.limits.max_velocity);
+  limits_proto->set_a_max(context.ego.limits.max_acceleration);
+  limits_proto->set_omega_max(context.ego.limits.max_steer_rate);
+  limits_proto->set_steer_max(context.ego.limits.max_steer_angle);
+
+  auto* geometry_proto = chassis_proto.mutable_geometry();
+  geometry_proto->set_body_length(context.ego.kinematics.body_length);
+  geometry_proto->set_body_width(context.ego.kinematics.body_width);
+  geometry_proto->set_body_height(context.ego.kinematics.height);
+  geometry_proto->set_wheel_radius(context.ego.kinematics.wheel_radius);
+  geometry_proto->set_front_overhang(context.ego.kinematics.front_overhang);
+  geometry_proto->set_rear_overhang(context.ego.kinematics.rear_overhang);
+
   // 🔧 转换静态障碍物（从 BEV 数据）
   // 重要：即使没有 BEV 障碍物，也要清空旧的静态障碍物！
   if (context.bev_obstacles) {
@@ -691,10 +711,10 @@ void LocalSimulator::Impl::integrate_ego_motion(double dt) {
   // 🔍 调试：每秒打印一次积分前的状态
   static uint64_t last_integrate_log = 0;
   if (world_state_.frame_id % 30 == 0 && world_state_.frame_id != last_integrate_log) {
-    std::cout << "[LocalSimulator::integrate_ego_motion] BEFORE integration:" << std::endl;
-    std::cout << "  dt=" << dt << "s" << std::endl;
-    std::cout << "  Pose: (" << x << ", " << y << ", " << yaw << ")" << std::endl;
-    std::cout << "  Twist: vx=" << vx << ", vy=" << vy << ", omega=" << omega << std::endl;
+    // std::cout << "[LocalSimulator::integrate_ego_motion] BEFORE integration:" << std::endl;
+    // std::cout << "  dt=" << dt << "s" << std::endl;
+    // std::cout << "  Pose: (" << x << ", " << y << ", " << yaw << ")" << std::endl;
+    // std::cout << "  Twist: vx=" << vx << ", vy=" << vy << ", omega=" << omega << std::endl;
     last_integrate_log = world_state_.frame_id;
   }
 
@@ -715,13 +735,13 @@ void LocalSimulator::Impl::integrate_ego_motion(double dt) {
 
   // 🔍 调试：打印积分后的状态
   if (world_state_.frame_id % 30 == 0) {
-    std::cout << "[LocalSimulator::integrate_ego_motion] AFTER integration:" << std::endl;
-    std::cout << "  Pose: (" << world_state_.ego_pose.x
-              << ", " << world_state_.ego_pose.y
-              << ", " << world_state_.ego_pose.yaw << ")" << std::endl;
-    std::cout << "  Delta: dx=" << (world_state_.ego_pose.x - x)
-              << ", dy=" << (world_state_.ego_pose.y - y)
-              << ", dyaw=" << (world_state_.ego_pose.yaw - yaw) << std::endl;
+    // std::cout << "[LocalSimulator::integrate_ego_motion] AFTER integration:" << std::endl;
+    // std::cout << "  Pose: (" << world_state_.ego_pose.x
+    //           << ", " << world_state_.ego_pose.y
+    //           << ", " << world_state_.ego_pose.yaw << ")" << std::endl;
+    // std::cout << "  Delta: dx=" << (world_state_.ego_pose.x - x)
+    //           << ", dy=" << (world_state_.ego_pose.y - y)
+    //           << ", dyaw=" << (world_state_.ego_pose.yaw - yaw) << std::endl;
   }
 }
 

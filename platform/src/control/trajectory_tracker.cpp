@@ -40,8 +40,8 @@ void TrajectoryTracker::setTrajectory(const std::vector<plugin::TrajectoryPoint>
             }
         }
 
-        std::cout << "[TrajectoryTracker] Loaded trajectory with " << trajectory_.size()
-                  << " points, duration: " << getTrajectoryDuration() << "s" << std::endl;
+        // std::cout << "[TrajectoryTracker] Loaded trajectory with " << trajectory_.size()
+        //           << " points, duration: " << getTrajectoryDuration() << "s" << std::endl;
 
         // 倒车标记与修正航向计算
         reverse_flags_.assign(trajectory_.size(), false);

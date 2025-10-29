@@ -267,7 +267,7 @@ private:
     double last_yaw = 0.0;
   };
   std::optional<PlaybackPlanSignature> playback_plan_signature_;
-  double goal_hold_distance_ = 500.0;
+  double goal_hold_distance_ = 5.0;
   std::vector<plugin::TrajectoryPoint> hold_trajectory_;
   std::string hold_planner_name_;
   int hold_last_velocity_sign_ = 0;
