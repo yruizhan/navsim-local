@@ -9,6 +9,9 @@ NavSim Local 是一个面向自动驾驶/移动机器人规划算法研发的“
 
 ![alt text](docs/assets/image-6.png)
 
+本地仿真：
+
+![alt text](docs/assets/tmpc-s7.gif)
 
 ---
 
@@ -19,7 +22,14 @@ NavSim Local 是一个面向自动驾驶/移动机器人规划算法研发的“
 - **本地仿真**：内置 `LocalSimulator` 支持 JSON 场景回放、动态障碍物积分、碰撞检测与控制指令回传。
 - **可视化调试**：ImGui 控制台实时展示 BEV 障碍物、轨迹、仿真状态与性能统计。
 - **双运行模式(todo)**：既可离线加载场景运行，也能通过 WebSocket 与 `navsim-online` 协同。
-- **规划器插件社区**：当前仅实现了一个差分驱动的轨迹优化插件，后边会更新更多的规划器插件。会在公众号里写文章预告。
+
+## 规划器插件社区
+
+当前两个插件：
+- 差分驱动的轨迹优化插件DDR-opt
+- 拓扑驱动mpc(t-mpc)
+  
+新插件会在公众号里写文章预告。
 
 ---
 
@@ -123,60 +133,6 @@ flowchart LR
 
 运行时配置位于 `config/default.json`（或自定义文件）：
 
-```jsonc
-{
-  "planning": {
-    "primary_planner": "JpsPlanner",
-    "fallback_planner": "StraightLine",
-    "enable_fallback": true,
-    "planners": {
-      "JpsPlanner": {
-        "safe_dis": 0.3,
-        "jps_truncation_time": 5.0,
-        "optimizer": {
-          "collision_weight": 5e5
-        }
-      }
-    }
-  },
-  "perception": {
-    "plugins": [
-      {
-        "name": "GridMapBuilder",
-        "enabled": true,
-        "priority": 100,
-        "params": {
-          "resolution": 0.1,
-          "map_width": 30.0,
-          "map_height": 30.0,
-          "inflation_radius": 0.2
-        }
-      },
-      {
-        "name": "EsdfBuilder",
-        "enabled": true,
-        "priority": 90,
-        "params": {
-          "max_distance": 5.0,
-          "include_dynamic": true
-        }
-      }
-    ]
-  },
-  "algorithm": {
-    "max_computation_time_ms": 25.0,
-    "verbose_logging": false,
-    "goal_hold_distance_": 2.0
-  }
-}
-```
-
-要编写自定义插件：
-1. 继承对应接口，完成 `initialize`、`process` 等方法。
-2. 使用宏注册（参考内建插件）。
-3. 将插件加入构建系统（新建 `CMakeLists.txt`，修改 `plugins/<category>/CMakeLists.txt`）。
-4. 在配置文件中声明并启用该插件。
-
 ---
 
 ## 仿真引擎
@@ -224,83 +180,26 @@ flowchart LR
 
 ### 一键脚本
 
-```bash
-# 本地仿真（默认场景 map1）
-./build.sh local
+提供三个运行脚本：
 
-# 指定场景
-./build.sh -m map5 local
-
-# WebSocket 模式（需 navsim-online 后端）
-./build.sh websocket
-
-# 清理重建
-./build.sh -c local
-```
-
-脚本行为：
-- 始终启用可视化（检查 SDL2 并拉取 ImGui）。
-- 使用 `RelWithDebInfo` 编译（可切换 `-d/--debug` 或 `-r/--release`）。
-- 产出可执行文件 `build/navsim_algo`，并在需要时构建插件共享库。
-
-### 手动构建
-
-```bash
-mkdir -p build && cd build
-cmake .. \
-  -DENABLE_VISUALIZATION=ON \
-  -DBUILD_PLUGINS=ON \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build . -j$(nproc)
-```
-
+- `build_and_run_debug.sh`：单帧静态规划，默认使用esdf插件和jps插件(ddr-opt)， ./build_and_run_debug.sh
+- `run_tmpc_test.sh`：单帧静态规划，默认使用拓扑MPC规划插件(t-mpc), ./run_tmpc_test.sh
+- `build.sh`：动态仿真脚本，使用时执行 ./build.sh local 
 ---
 
-## 运行指南
 
-### 本地仿真模式
+## 结果展示：拓扑驱动mpc插件
 
-```bash
-./build/navsim_algo \
-  --local-sim \
-  --scenario=scenarios/map3.json \
-  --config=config/default.json
-```
+<video controls src="docs/assets/tmpc效果展示.mp4" title="Title"></video>
 
-- ImGui 窗口自动打开
-- 可通过配置文件调整插件参数、Max computation time、Goal hold 距离等。
+![alt text](docs/assets/s3.gif) 
 
-### WebSocket 联机模式（todo）
-
-目前online模式，仅支持场景绘制和底盘配置，保存地图等功能，联机模式等待下阶段开发。
-
-```bash
-./build/navsim_algo \
-  ws://127.0.0.1:8080/ws demo \
-  --config=config/default.json
-```
-
-- 建议先启动 `navsim-online` 服务器。
-- 应用作为客户端连接，接收远端 `WorldTick`，发布计划结果与心跳。
-- 可通过 Bridge 的调试接口发送感知诊断信息到前端。
-
-### 调试与监控
-
-- `algorithm.verbose_logging = true` 可输出详细的感知/规划耗时及轨迹信息。
-- 可视化器右上角的系统信息展示正在使用的配置、主/备规划器、连接状态等。
+![alt text](docs/assets/map16.gif)
 
 
----
 
-## 开发建议
+## 结果展示：ddr-opt插件
 
-1. 新增插件或算法时，项目提供了脚本自动生成插件模板，但是有待改进，待完善以后再使用。
-2. 开发自己的规划器阶段，可用`build_and_run_debug.sh`进行快速调试。这是一个单帧规划的脚本。
-3. navsim-local/scenarios/目录放置了一些json地图，这些地图是通过navsim-online在线编辑绘制的，包含了起点终点，障碍物，动态障碍物，底盘类型，运动学约束。在网页上下载后放在此目录即可。在线网站暂未上线，大家可以先用这内置的地图体验，在线网站即将上线，敬请期待。
-
----
-
-## 结果展示
 ### map1
 
 感觉不够平滑
@@ -368,6 +267,11 @@ cmake --build . -j$(nproc)
   keywords={Robots;Mobile robots;Kinematics;Trajectory optimization;Planning;Robot kinematics;Computational modeling;Dynamics;Wheels;Tracking;Motion planning;trajectory optimization;differential drive robot class;nonholonomic dynamics},
   doi={10.1109/TASE.2025.3550676}
 }
+```
+
+```
+[2] Journal Paper: O. de Groot, L. Ferranti, D. M. Gavrila, and J. Alonso-Mora, Topology-Driven Parallel Trajectory Optimization in Dynamic Environments. IEEE Transactions on Robotics (T-RO) 2024. Available: https://doi.org/10.1109/TRO.2024.3475047
+
 ```
 
 **更多开发细节，可关注公众号了解： 哎嗨人生**
